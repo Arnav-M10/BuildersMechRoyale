@@ -289,3 +289,4 @@ Rerun on fixed sim (64 matches each vs 15 Go clones): Go base, our Python ours+F
 gg3s8 5.17 → Go draws mean 5.65 over 9. gg3s9 submitted.
 FIXED-SIM FFA vs 15 Go clones: Go base 7.61 (64 m, sanity OK); our Python ours+FFA 3.83 (18 m) → Go is far stronger in FFA; Python line dropped for the final. Codex finishing 4 Go FFA variants (lurk/vulture/endgame/all).
 gg3s9 5.40; gg3s10 scoring.
+Codex Go FFA variants built (FFA-only, practice guarded): gf-v1-lurk `72c8214`, gf-v2-vulture `9971071`, gf-v3-endgame `a37c41a`, gf-v4-all `42aec54` (notes dev/GO_FFA_NOTES.md). Testing vs 15 clones, 64 m each (baseline Go 7.61).
