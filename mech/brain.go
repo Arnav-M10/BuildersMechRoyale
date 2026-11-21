@@ -165,7 +165,7 @@ func DefaultParams() Params {
 }
 
 func NewBrain(h *Hello, w *World) *Brain {
-	seed := int64(h.Seed)
+	seed := int64(h.Seed) ^ int64(3*0x9E3779B1)
 	if seed == 0 {
 		seed = int64(h.Slot) + 1
 	}
