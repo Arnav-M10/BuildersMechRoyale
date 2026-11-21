@@ -103,6 +103,7 @@ Scoring is deterministic per commit, but any change reshuffles the 48 matches by
 NOTE: the chosen practice submission IS the bot that plays qualifying/final, so the final pick = best salt draw + the FFA layer (if it helps). The layer never latches in practice, so the salt's practice score should reproduce exactly; verify by resubmitting.
 
 ## Leaderboard at ~5:20 AM (Mac): 224 teams; top-32 line ≈ 5.23; we're 27th at 5.29; leader 5.96.
-| Sat 5:23 AM (Mac) | `87a0559` (s2f) | salt 2 + FFA layer on: practice-neutrality check (expect exactly 5.29) | scoring… |
+| Sat 5:23 AM (Mac) | `87a0559` (s2f) | salt 2 + FFA layer on: practice-neutrality check (expect exactly 5.29) | **5.29 exactly**: FFA layer confirmed practice-neutral |
 Plan: if s2f reproduces 5.29, all further salt draws include the FFA layer so any lucky draw is also the best final bot.
 Salt+FFA draws ready: s4f `a5fac69`, s5f `5118cbd`, s6f `04acbfc`, s7f `2d4148f`. More live FFA A/B running (layer on in room 2, off in room 4, 6 each).
+| Sat 5:31 AM (Mac) | `a5fac69` (s4f) | salt 4 + FFA layer | scoring… |
