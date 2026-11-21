@@ -22,17 +22,17 @@ BOT_NAME = "oval-warden"
 
 # Strategy knobs (tuned by A/B submissions on the fixed practice seeds)
 P = {
-    "core": "ours",       # "ours" or giddygiddyboy's practice-squad core
+    "core": "giddy",       # "ours" or giddygiddyboy's practice-squad core
     "g_hpw": 0.1,         # giddy core target HP weight (giddy3 squad: 0.21; real draw 4.65 → keep 0.1)
     "g_lethalk": 0.8,     # giddy core lethal partial-laser factor (giddy3: 0.7)
     "g_fb": True,         # giddy core FightBoost 40 (giddy3 removed it)
-    "g_nav": False,       # deeper, closer-to-source giddy path follower
-    "g_cover": False,     # source-style reachable-cell cover BFS
-    "g_stuck": False,     # shorter grounded stuck threshold from giddy3
-    "g_clear": False,     # clearance-weighted giddy paths (costlier than the default A*)
-    "g_escape": False,    # source EscapePlan launch/landing and roof-following jet
-    "g_laserpre": False,  # begin charging a visible in-range laser before aim alignment
-    "g_npcmem": False,    # retain NPC tracks for source's 120 s memory window
+    "g_nav": True,        # deeper, closer-to-source giddy path follower
+    "g_cover": True,      # source-style reachable-cell cover BFS
+    "g_stuck": True,      # shorter grounded stuck threshold from giddy3
+    "g_clear": True,      # clearance-weighted giddy paths (costlier than the default A*)
+    "g_escape": True,     # source EscapePlan launch/landing and roof-following jet
+    "g_laserpre": True,   # begin charging a visible in-range laser before aim alignment
+    "g_npcmem": True,     # retain NPC tracks for source's 120 s memory window
     "chase": True,        # push toward a target we cannot see when healthy
     "retreat_hp": 0.38,   # break line of sight below this HP fraction
     "laser_band": (50.0, 120.0),
@@ -70,20 +70,20 @@ P = {
     "duck": False,        # gun-only and reloading: step to a spot within ~12 m out of the target's sight
     "select": False,      # engage only close/attacking/approaching/weak/aiming mechs, or late (giddygiddyboy rules)
     "posearch": False,    # fight movement = best of stay + 16 spots 6 m away (range, LOS when ready, crossfire, zone, cubes)
-    "ffa_detect": False,  # latch from crossfire or unexplained eliminations
-    "ffa_engage": False,  # only take qualifying FFA fights; otherwise avoid via cover
-    "ffa_hold": False,    # hold a covered position inside the next circle in the endgame
-    "ffa_lurk": False,    # FFA opening (t<75 s and >9 alive): fight only attackers or mechs within 25 m
-    "ffa_end": False,     # FFA endgame (<=4 alive): only attackers or weak close mechs; hold 0.3*r when r<=70
-    "ffa_heal": False,    # FFA only: disengage when ganged/losing the race, heal in cover, resume at 75% HP
-    "ffa_fast": False,    # latch FFA on 2 (not 3) unexplained deaths before the first zone shrink
+    "ffa_detect": True,   # latch from crossfire or unexplained eliminations
+    "ffa_engage": True,   # only take qualifying FFA fights; otherwise avoid via cover
+    "ffa_hold": True,     # hold a covered position inside the next circle in the endgame
+    "ffa_lurk": True,     # FFA opening (t<75 s and >9 alive): fight only attackers or mechs within 25 m
+    "ffa_end": True,      # FFA endgame (<=4 alive): only attackers or weak close mechs; hold 0.3*r when r<=70
+    "ffa_heal": True,     # FFA only: disengage when ganged/losing the race, heal in cover, resume at 75% HP
+    "ffa_fast": True,     # latch FFA on 2 (not 3) unexplained deaths before the first zone shrink
     "ffa_juke": False,    # FFA only: timed laser juke (laser_dodge) once FFA is latched
     "ffa_econ": False,    # FFA only: TTUN-style farming (drones/crates/drops/cubes) when not fighting
     "fightboost": 0.0,    # >0: boost throughout fights when energy is above this (not while charging a laser;
                           #     with lightning only above 60), as in giddygiddyboy's 6.00 squad params
     "lurk_t": 75.0,       # ffa_lurk lasts until this match time...
     "lurk_alive": 9,      # ...or until this many mechs are left
-    "salt": 0,            # mixed into the RNG seed (strafe timing etc.); the strategy itself is unchanged
+    "salt": 47,            # mixed into the RNG seed (strafe timing etc.); the strategy itself is unchanged
 }
 # offline tuning only: the simulator may override knobs through MF_P (never set in matches)
 if os.environ.get("MF_P"):
