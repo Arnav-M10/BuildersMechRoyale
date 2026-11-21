@@ -559,7 +559,7 @@ class Brain:
         act["move"] = [round(mx, 3), round(my, 3)]
         act["boost"] = bool(boost)
         act["jump"] = bool(jump)
-        self.hist.append((t, px, py, hyp(mx, my)))
+        self.hist.append((t, px, py, hyp(mx, my), hyp(vx, vy)))
         if len(self.hist) > 40:
             del self.hist[:-40]
         self.prev_hp = hp
@@ -825,8 +825,9 @@ class Brain:
             label += " unstick"
         else:
             if len(self.hist) >= 15:
-                t0, x0, y0, c0 = self.hist[-15]
-                if t - t0 < 2.0 and all(h[3] > 0.6 for h in self.hist[-15:]) and hyp(px - x0, py - y0) < 1.5:
+                t0 = self.hist[-15][0]
+                # commanded to walk for ~1.5 s but barely moving: wedged on something
+                if t - t0 < 2.0 and all(h[3] > 0.6 and h[4] < 1.5 for h in self.hist[-15:]):
                     a = math.atan2(mv[1], mv[0]) + (PI / 2 if self.rng.random() < 0.5 else -PI / 2)
                     self.stuck_dir = (math.cos(a), math.sin(a))
                     self.stuck_until = t + 0.9
