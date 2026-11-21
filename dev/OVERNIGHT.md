@@ -194,3 +194,4 @@ Draws: gd2 `2dddcb9`, gd40 `54789c0`, gd41 `d7ab4cf` (giddy core + salt + full F
 | Sat 10:02 AM (Mac) | `2dddcb9` (gd2) | giddy core + salt 2 + FFA pkg | 4.98 |
 | Sat 10:20 AM (Mac) | `54789c0` (gd40) | giddy core + salt 40 + FFA pkg | scoring… |
 Live FFA test running: giddy core (16) vs our core (8).
+### FFA live: giddy core (16): 2,1,2,3,2,5,5,15,2,16,5,2,2,9,1,1 → 11.4 vs our core (8): 7,2,2,15,9,15,1,1 → 9.5 (pooled ours ≈11.6 over 48). Giddy core is safe in FFA (no errors) → eligible as final if a draw beats 5.29.
