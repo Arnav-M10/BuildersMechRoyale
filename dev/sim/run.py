@@ -36,7 +36,7 @@ def load_contract():
 
 
 class BotProcess:
-    def __init__(self, cmd, slot, hello, schema, tick_budget):
+    def __init__(self, cmd, slot, hello, schema, tick_budget, child_env=None):
         self.cmd = list(cmd)
         self.slot = slot
         self.schema = schema
@@ -47,7 +47,7 @@ class BotProcess:
         self.invalid = 0
         self.proc = subprocess.Popen(self.cmd, cwd=ROOT, stdin=subprocess.PIPE,
                                      stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-                                     bufsize=0)
+                                     bufsize=0, env=child_env)
         threading.Thread(target=self._read_stdout, daemon=True).start()
         self.hello = dict(hello)
         self.hello["slot"] = slot
@@ -143,7 +143,7 @@ class BotProcess:
 _CTX = {}
 
 
-def _worker_init(config, bot_cmd, ffa, validate, cache_path):
+def _worker_init(config, bot_cmd, ffa, mixed, validate, cache_path):
     global _CTX
     # The parent created the cache before forking. If a platform uses spawn,
     # load the shared on-disk cache here.
@@ -151,7 +151,8 @@ def _worker_init(config, bot_cmd, ffa, validate, cache_path):
     map_dir = str(ROOT / "arena")
     g = geo.Geo.load(map_dir, str(cache_path))
     _CTX = {"geo": g, "config": config, "cmd": bot_cmd,
-            "ffa": ffa, "schema": Schema(str(ROOT / "dev/mechfight.schema.json")) if validate else None}
+            "ffa": ffa, "mixed": mixed,
+            "schema": Schema(str(ROOT / "dev/mechfight.schema.json")) if validate else None}
 
 
 def _run_match(job):
@@ -163,9 +164,23 @@ def _run_match(job):
     slots = range(16) if ctx["ffa"] else (0,)
     bots = {}
     for slot in slots:
+        child_env = None
+        if ctx.get("mixed"):
+            child_env = os.environ.copy()
+            try:
+                mf_p = json.loads(child_env.get("MF_P", "{}"))
+                if not isinstance(mf_p, dict):
+                    mf_p = {}
+            except (TypeError, ValueError):
+                mf_p = {}
+            # Alternate groups by match so slot/spawn bias does not favor one variant.
+            enabled = (slot < 8) == (index % 2 == 1)
+            mf_p.update({"ffa_detect": enabled, "ffa_engage": enabled, "ffa_hold": enabled})
+            child_env["MF_P"] = json.dumps(mf_p, separators=(",", ":"))
         bots[slot] = BotProcess(cmd, slot, load_contract(),
                                 schema or Schema(str(ROOT / "dev/mechfight.schema.json")),
-                                float(ctx["config"]["bot"].get("tick_budget_ms", 50)) / 1000)
+                                float(ctx["config"]["bot"].get("tick_budget_ms", 50)) / 1000,
+                                child_env=child_env)
     ready = {}
     # Start all FFA copies before waiting for any, keeping hello load parallel.
     hello_started = time.monotonic()
@@ -267,9 +282,12 @@ def main(argv=None):
     ap.add_argument("--seed",type=int,default=1)
     ap.add_argument("--jobs",type=int,default=None)
     ap.add_argument("--ffa",action="store_true",help="run 16 subprocess copies of the supplied bot")
+    ap.add_argument("--ffa-mixed",action="store_true",help="FFA: slots 0-7 use FFA knobs, slots 8-15 disable them")
     ap.add_argument("--no-validate",action="store_true",help="skip generated observation schema validation (actions remain checked)")
     ap.add_argument("cmd",nargs=argparse.REMAINDER)
     args=ap.parse_args(argv)
+    if args.ffa_mixed:
+        args.ffa = True
     cmd=args.cmd[1:] if args.cmd[:1]==["--"] else args.cmd
     if not cmd:ap.error("give the bot command after --")
     if args.matches<1:ap.error("--matches must be positive")
@@ -280,14 +298,15 @@ def main(argv=None):
     import geo
     global _CTX
     root_geo=geo.Geo.load(str(ROOT/"arena"),str(cache))
-    _CTX={"geo":root_geo,"config":config,"cmd":cmd,"ffa":args.ffa,
+    _CTX={"geo":root_geo,"config":config,"cmd":cmd,"ffa":args.ffa,"mixed":args.ffa_mixed,
           "schema":None if args.no_validate else Schema(str(ROOT/"dev/mechfight.schema.json"))}
     jobs=args.jobs or min(args.matches,max(1,min(4,os.cpu_count() or 1)))
     jobs=max(1,min(args.matches,jobs))
     jobs_list=[(i+1,args.seed+i) for i in range(args.matches)]
     results=[]
+    mode = "FFA mixed 8/8" if args.ffa_mixed else ("FFA" if args.ffa else "bot vs house squad")
     print("mode: %s | matches: %d | workers: %d | validation: %s" %
-          ("FFA" if args.ffa else "bot vs house squad",args.matches,jobs,"on" if not args.no_validate else "off"),flush=True)
+          (mode,args.matches,jobs,"on" if not args.no_validate else "off"),flush=True)
     if jobs==1:
         for job in jobs_list:
             r=_run_match(job);results.append(r)
@@ -299,7 +318,7 @@ def main(argv=None):
         except ValueError:
             ctx=mp.get_context()
         with concurrent.futures.ProcessPoolExecutor(max_workers=jobs,mp_context=ctx,
-             initializer=_worker_init,initargs=(config,cmd,args.ffa,not args.no_validate,cache)) as pool:
+             initializer=_worker_init,initargs=(config,cmd,args.ffa,args.ffa_mixed,not args.no_validate,cache)) as pool:
             futs={pool.submit(_run_match,j):j for j in jobs_list}
             for fut in concurrent.futures.as_completed(futs):
                 r=fut.result();results.append(r)
@@ -312,6 +331,15 @@ def main(argv=None):
         hist={p:placements.count(p) for p in range(1,17)}
         print("mean (16-place): %.3f across %d bot seats"%(sum(scores)/len(scores),len(scores)))
         print("placement histogram: "+" ".join("%d:%d"%(p,hist[p]) for p in range(1,17)))
+        if args.ffa_mixed:
+            for label, enabled in (("knobs-on", True), ("knobs-off", False)):
+                group = [r["contestant_placements"][slot]
+                         for r in results for slot in range(16)
+                         if ((slot < 8) == (r["match"] % 2 == 1)) == enabled]
+                gh = {p: group.count(p) for p in range(1, 17)}
+                print("%s mean (16-place): %.3f across %d seats | places %s" %
+                      (label, sum(16-p for p in group)/len(group), len(group),
+                       " ".join("%d:%d" % (p, gh[p]) for p in range(1, 17))))
         print("timeouts %d | invalid actions %d" %
               (sum(r["timeouts"] for r in results), sum(r["invalid_actions"] for r in results)))
         for r in results:

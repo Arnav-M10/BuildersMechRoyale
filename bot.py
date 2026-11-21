@@ -59,6 +59,9 @@ P = {
     "duck": False,        # gun-only and reloading: step to a spot within ~12 m out of the target's sight
     "select": False,      # engage only close/attacking/approaching/weak/aiming mechs, or late (giddygiddyboy rules)
     "posearch": False,    # fight movement = best of stay + 16 spots 6 m away (range, LOS when ready, crossfire, zone, cubes)
+    "ffa_detect": False,  # latch from crossfire or unexplained eliminations
+    "ffa_engage": False,  # only take qualifying FFA fights; otherwise avoid via cover
+    "ffa_hold": False,    # hold a covered position inside the next circle in the endgame
     "salt": 0,            # mixed into the RNG seed (strafe timing etc.); the strategy itself is unchanged
 }
 # offline tuning only: the simulator may override knobs through MF_P (never set in matches)
@@ -171,6 +174,8 @@ class Brain:
     def __init__(self, hello):
         cfg = hello.get("config") or {}
         self.cfg = cfg
+        zone_phases = (cfg.get("zone") or {}).get("phases") or []
+        self.first_zone_shrink = float(zone_phases[0].get("hold_s", 60.0)) if zone_phases else 60.0
         self.my_id = hello.get("slot")
         seed = hello.get("seed")
         self.rng = random.Random((seed if isinstance(seed, int) else 12345) ^ (int(P["salt"]) * 2654435761 & 0xFFFFFFFF))
@@ -208,6 +213,10 @@ class Brain:
         self.crates = {}        # id -> (pos, hp, seen)
         self.cubes_mem = {}     # id -> (pos, seen)
         self.attacked_by = {}   # id -> last time it damaged us
+        self.my_kills = 0
+        self.ffa = False
+        self.ffa_beam_clues = 0
+        self.ffa_beam_seen = {}
         self.charge_seen = {}   # enemy id -> time we first saw it charging
         self.hints = []         # (t, bearing, weight) threat directions from sounds/damage
         self.last_hurt = -99.0
@@ -410,6 +419,7 @@ class Brain:
             elif et == "took":
                 self.pickups.pop(ev.get("id"), None)
             elif et == "kill":
+                self.my_kills += 1
                 tid = ev.get("target")
                 dead = self.enemies.pop(tid, None)
                 if dead is not None:
@@ -432,6 +442,77 @@ class Brain:
         self.hints = [h for h in self.hints if t - h[0] < 3.0][-24:]
         self.dmg_in = [d for d in self.dmg_in if t - d[0] <= 2.5]
         self.dmg_out = [d for d in self.dmg_out if t - d[0] <= 3.0]
+
+    def update_ffa(self, obs, me, t):
+        if self.ffa or not P["ffa_detect"]:
+            return
+        alive = int(obs.get("alive", 16))
+        # The aggregate death count has no cause attribution. Trust it only before the
+        # first zone shrink, when ring casualties cannot explain the gap. Crossfire beams
+        # remain a high-confidence signal throughout the match.
+        if t < self.first_zone_shrink and 16 - alive - self.my_kills >= 3:
+            self.ffa = True
+            log("FFA latched from unexplained deaths at t=%.1f" % t)
+            return
+        my_pos = me.get("pos") or [0.0, 0.0, 0.0]
+        mechs = obs.get("mechs") or []
+        for beam in obs.get("beams") or []:
+            by = beam.get("by")
+            path = beam.get("path") or []
+            if by is None or by == self.my_id or not isinstance(path, list) or len(path) < 2:
+                continue
+            try:
+                by = int(by)
+                age = float(beam.get("age", 0.0))
+                if by < 0 or by >= 16 or not all(isinstance(p, list) and len(p) >= 3 for p in path):
+                    continue
+                if any(hyp(float(p[0]) - my_pos[0], float(p[1]) - my_pos[1]) < 20.0 for p in path):
+                    continue
+                end = [float(v) for v in path[-1][:3]]
+                hit_id, hit_d = None, 7.0
+                for other in mechs:
+                    oid, opos = other.get("id"), other.get("pos")
+                    if (oid is None or oid == self.my_id or oid == by or
+                            other.get("kind", "mech") != "mech" or not isinstance(opos, list) or len(opos) < 3):
+                        continue
+                    d = math.sqrt(sum((float(opos[k]) - end[k]) ** 2 for k in range(3)))
+                    if d < hit_d:
+                        hit_d, hit_id = d, int(oid)
+                if hit_id is None:
+                    continue
+                sig = (by, str(beam.get("kind", "")), hit_id, round(t - age, 2))
+                if sig not in self.ffa_beam_seen:
+                    self.ffa_beam_seen[sig] = t
+                    self.ffa_beam_clues += 1
+                    if self.ffa_beam_clues >= 2:
+                        self.ffa = True
+                        log("FFA latched from crossfire beams at t=%.1f" % t)
+                        return
+            except (TypeError, ValueError, OverflowError):
+                continue
+        self.ffa_beam_seen = {k: seen for k, seen in self.ffa_beam_seen.items() if t - seen < 10.0}
+
+    def ffa_engageable(self, e, t, alive, hpf, current_target_id):
+        if t - self.attacked_by.get(e["id"], -99.0) < 4.0:
+            return True
+        if e["id"] == current_target_id and t - self.target_t_last < 1.0:
+            return True
+        if e.get("dist", 1e9) < 35.0 or alive <= 4:
+            return True
+        hp, max_hp = e.get("hp"), e.get("max_hp")
+        return (hp is not None and max_hp and float(hp) / float(max_hp) < 0.45 and
+                e.get("dist", 1e9) < 120.0 and hpf > 0.4)
+
+    def recent_ffa_threat(self, t, px, py):
+        tracks = [e for e in self.enemies.values() if t - e.get("seen", -99.0) <= 8.0]
+        threat = max(tracks, key=lambda e: (self.attacked_by.get(e["id"], -99.0), e.get("seen", -99.0))) if tracks else None
+        threat_t = max(self.attacked_by.get(threat["id"], -99.0), threat.get("seen", -99.0)) if threat else -99.0
+        hints = [h for h in self.hints if t - h[0] <= 6.0]
+        hint = max(hints, key=lambda h: h[0]) if hints else None
+        if hint is not None and hint[0] > threat_t:
+            b = hint[1]
+            return {"id": None, "pos": [px + math.cos(b) * 40.0, py + math.sin(b) * 40.0, 0.0], "seen": hint[0]}
+        return threat
 
     # ----------------------------------------------------------------- upgrades
     def choose_upgrade(self, offer):
@@ -463,6 +544,9 @@ class Brain:
         energy = float(me.get("energy", 0.0))
         cubes = float(me.get("cubes", 0))
         self.update_memory(obs, me)
+        self.update_ffa(obs, me, t)
+        alive = int(obs.get("alive", 16))
+        ffa_active = self.ffa and P["ffa_engage"]
         self.gun_busy = False
         self.has_special = any(w and w.get("kind") in ("laser", "lightning") for w in (me.get("weapons") or []))
         self.muzzle_h = float((me.get("stats") or {}).get("muzzle_height", 7.0))
@@ -516,7 +600,7 @@ class Brain:
             cands.append((d, e))
         cands.sort(key=lambda c: c[0])
         tlist = []
-        for d, e in cands[:(10 if P["tsel"] else 6)]:
+        for d, e in cands[:(len(cands) if ffa_active else (10 if P["tsel"] else 6))]:
             ex, ey, ez = e["pos"]
             sc = 1.0 + self.size_per_cube * float(e.get("cubes") or 0)
             com = (ex, ey, ez + 4.5 * sc)
@@ -532,10 +616,16 @@ class Brain:
 
         target = None
         best = 1e18
+        avoid = None
+        current_target_id = self.target_id
         late = float(zone_obs_next_r(obs)) <= 70.0 or int(obs.get("alive") or 16) <= 3
         for e in tlist:
             d = e["dist"]
             ehp = e.get("hp") or 1400.0
+            if ffa_active and not self.ffa_engageable(e, t, alive, hpf, current_target_id):
+                if avoid is None or d < avoid["dist"]:
+                    avoid = e
+                continue
             if P["select"] and not late and not self.engageable(e, px, py, t):
                 continue
             emax = e.get("max_hp") or 1400.0
@@ -568,6 +658,14 @@ class Brain:
                 s -= 25.0
             if s < best:
                 best, target = s, e
+        if ffa_active and target is None:
+            for e in self.enemies.values():
+                if t - e.get("seen", -99.0) > 1.5 or self.ffa_engageable(e, t, alive, hpf, current_target_id):
+                    continue
+                d = hyp(e["pos"][0] - px, e["pos"][1] - py)
+                if avoid is None or d < avoid.get("dist", 1e9):
+                    e["dist"] = d
+                    avoid = e
         if target is not None and target["id"] != self.target_id:
             self.target_id = target["id"]
             self.target_since = t
@@ -589,6 +687,15 @@ class Brain:
             if t - self.attacked_by.get(n["id"], -99) < 4.0 or d < 40.0:
                 if npc_target is None or d < npc_target["dist"]:
                     npc_target = n
+        if ffa_active and target is None:
+            npc_target = None
+
+        ffa_face_yaw = None
+        if self.ffa and target is None and ((P["ffa_engage"] and avoid is not None) or
+                                            (P["ffa_hold"] and alive <= 6)):
+            face = avoid or self.recent_ffa_threat(t, px, py)
+            if face is not None:
+                ffa_face_yaw = math.atan2(face["pos"][1] - py, face["pos"][0] - px)
 
         # ---------------------------------------------------------- aim & fire
         fire = [False, False]
@@ -601,7 +708,7 @@ class Brain:
         elif npc_target is not None:
             shoot = npc_target
         farm = None
-        if shoot is None and not threats:
+        if shoot is None and not threats and not ffa_active:
             farm = self.pick_farm(px, py, pz, muzzle, hpf, zx, zy, zr)
             if farm is not None:
                 shoot = farm
@@ -734,6 +841,8 @@ class Brain:
 
         if aim_yaw is None:
             aim_yaw, aim_pitch = self.scan_aim(t, px, py, my_aim, threats, vx, vy)
+        if ffa_face_yaw is not None:
+            aim_yaw, aim_pitch = ffa_face_yaw, 0.0
 
         act["aim"] = [round(aim_yaw, 4), round(aim_pitch, 4)]
         act["fire"] = fire
@@ -757,7 +866,7 @@ class Brain:
         move, boost, jump, label = self.movement(obs, me, t, px, py, pz, vx, vy, hpf, energy, kinds,
                                                   target, tlist, threats, visible_threats,
                                                   zx, zy, zr, lx, ly, lr, nx_, ny_, nr, ss, walk,
-                                                  laser_charge > 0, farm)
+                                                  laser_charge > 0, farm, avoid)
         mx, my = move
         n = hyp(mx, my)
         if n > 1.0:
@@ -773,8 +882,9 @@ class Brain:
         if TRACE is not None and int(obs.get("tick", 0)) % 10 == 0:
             try:
                 vis = ["%d:%d@%d%s" % (e["id"], e.get("hp") or 0, e["dist"], "L" if e["los"] else "") for e in tlist]
-                TRACE.write("t%.1f pos(%.0f,%.0f,%.0f) hp%.0f e%.0f in_zone=%s zone(%.0f,%.0f r%.0f) next(%.0f,%.0f r%.0f) %s mv=%s w=%s tgt=%s c%d alive%s vis=%s\n" % (
-                    t, px, py, pz, hp, energy, me.get("in_zone"), zx, zy, zr, nx_, ny_, nr, label,
+                TRACE.write("t%.1f pos(%.0f,%.0f,%.0f) hp%.0f e%.0f in_zone=%s zone(%.0f,%.0f r%.0f) next(%.0f,%.0f r%.0f) %s ffa=%s k%d b%d mv=%s w=%s tgt=%s c%d alive%s vis=%s\n" % (
+                    t, px, py, pz, hp, energy, me.get("in_zone"), zx, zy, zr, nx_, ny_, nr, label, self.ffa,
+                    self.my_kills, self.ffa_beam_clues,
                     act["move"], kinds, self.target_id, cubes, obs.get("alive"), " ".join(vis)))
                 TRACE.flush()
             except Exception:
@@ -958,7 +1068,8 @@ class Brain:
         return None
 
     def movement(self, obs, me, t, px, py, pz, vx, vy, hpf, energy, kinds, target, tlist, threats,
-                 visible_threats, zx, zy, zr, lx, ly, lr, nx_, ny_, nr, ss, walk, charging, farm):
+                 visible_threats, zx, zy, zr, lx, ly, lr, nx_, ny_, nr, ss, walk, charging, farm,
+                 ffa_avoid=None):
         boost = False
         jump = False
         label = ""
@@ -1010,6 +1121,31 @@ class Brain:
             if target is not None and target["los"]:
                 sx, sy = self.strafe_vec(t, px, py, target)
                 mv = (mv[0] + sx * 0.35, mv[1] + sy * 0.35)
+        elif self.ffa and P["ffa_engage"] and target is None and ffa_avoid is not None:
+            ex, ey, ez = ffa_avoid["pos"]
+            enemy_sees = self.los((ex, ey, ez + 8.0), (px, py, pz + 6.0))
+            cover = self.find_cover(px, py, [ffa_avoid], lx, ly, lr) if enemy_sees else None
+            if cover is not None:
+                mv = self.nav_to(px, py, cover[0], cover[1])
+                boost = energy > 35.0
+            elif enemy_sees:
+                mv = unit(px - ex, py - ey)
+                boost = energy > 35.0
+            else:
+                mv = (0.0, 0.0)
+            label = "ffa-hide"
+        elif self.ffa and P["ffa_hold"] and target is None and int(obs.get("alive", 16)) <= 6:
+            dn = hyp(px - nx_, py - ny_)
+            ang = math.atan2(py - ny_, px - nx_) if dn > 1e-6 else 0.0
+            radius = min(max(0.0, nr * 0.55), max(12.0, dn - 15.0))
+            gx, gy = nx_ + math.cos(ang) * radius, ny_ + math.sin(ang) * radius
+            recent = self.recent_ffa_threat(t, px, py)
+            cover = self.find_cover(px, py, [recent], nx_, ny_, nr) if recent is not None else None
+            if cover is not None:
+                gx, gy = cover[0], cover[1]
+            mv = self.nav_to(px, py, gx, gy)
+            boost = energy > 40.0 and hyp(gx - px, gy - py) > 25.0
+            label = "ffa-hold"
         elif hp_low and threats and (len(visible_threats) > 0 or t - self.last_hurt < 4.0):
             # ---- 3. break line of sight and regenerate
             if self.cover_goal is None or t - self.cover_t > 1.2:
