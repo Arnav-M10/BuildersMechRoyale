@@ -56,6 +56,7 @@ P = {
     "upg": "default",     # upgrade order: "default", "econ" (TTUN), "inv" (Team Inventors)
     "want_laser": 0.0,    # >0: hold this distance instead of want_d while carrying a laser
     "selfcomp": False,    # aim from where our muzzle will be (own velocity x 0.075 s); travel from the 3 m spawn point
+    "duck": False,        # gun-only and reloading: step to a spot within ~12 m out of the target's sight
 }
 # offline tuning only: the simulator may override knobs through MF_P (never set in matches)
 if os.environ.get("MF_P"):
@@ -219,6 +220,9 @@ class Brain:
         self.dmg_in = []
         self.dmg_out = []
         self.kill_spots = []
+        self.gun_busy = False
+        self.duck_spot = None
+        self.duck_t = -99.0
         self.juke_dir = 1.0
         self.cover_goal = None
         self.cover_t = -99.0
@@ -444,6 +448,10 @@ class Brain:
         energy = float(me.get("energy", 0.0))
         cubes = float(me.get("cubes", 0))
         self.update_memory(obs, me)
+        self.gun_busy = False
+        for w in (me.get("weapons") or []):
+            if w and w.get("kind") == "gun" and ((w.get("reload") or 0) > 0.25 or (w.get("ammo") is not None and w.get("ammo") <= 0)):
+                self.gun_busy = True
         self.climb_req = None
         self.my_comp = -1
         if self.geo is not None:
@@ -1170,6 +1178,35 @@ class Brain:
                 return (pos[0], pos[1], "drop")
         return None
 
+    def duck_find(self, t, px, py, e):
+        """A free spot 6 or 12 m away that the target's eye cannot see (re-evaluated every 0.5 s)."""
+        g = self.geo
+        if g is None:
+            return None
+        if self.duck_spot is not None and t - self.duck_t < 0.5:
+            return self.duck_spot
+        self.duck_t = t
+        ex, ey, ez = e["pos"]
+        cx, cy, cr = self.safe_circle
+        best, bd = None, 1e9
+        for r in (6.0, 12.0):
+            for k in range(16):
+                a = k * PI / 8.0
+                qx, qy = px + math.cos(a) * r, py + math.sin(a) * r
+                if not g.free(qx, qy) or not g.seg_free(px, py, qx, qy, skip_start=0.5):
+                    continue
+                if hyp(qx - cx, qy - cy) > cr - 3.0:
+                    continue
+                if g.los(ex, ey, ez + 8.0, qx, qy, g.ground(qx, qy) + 6.0, step=1.5):
+                    continue
+                dd = r + 0.3 * abs(hyp(qx - ex, qy - ey) - hyp(px - ex, py - ey))
+                if dd < bd:
+                    best, bd = (qx, qy), dd
+            if best is not None:
+                break
+        self.duck_spot = best
+        return best
+
     def strafe_vec(self, t, px, py, e):
         if t >= self.strafe_until:
             if self.rng.random() < 0.7:
@@ -1222,6 +1259,10 @@ class Brain:
                 mv = self.nav_to(px, py, e["pos"][0], e["pos"][1])
                 return mv, False, "hunt"
             return (0.0, 0.0), False, "wait"
+        if P["duck"] and self.gun_busy and not has_laser and not has_lit and e["los"]:
+            spot = self.duck_find(t, px, py, e)
+            if spot is not None:
+                return self.nav_to(px, py, spot[0], spot[1]), False, "duck"
         radial = 0.0
         if d > rmax:
             radial = 1.0
