@@ -114,7 +114,7 @@ Salt+FFA draws ready: s4f `a5fac69`, s5f `5118cbd`, s6f `04acbfc`, s7f `2d4148f`
 Directional +1.1; never affects practice (s2f = 5.29 exactly). 
 
 ## !!! FINAL ENTRY PICK !!!
-Picked **s2F (BB-F2DD53A9, `be1e9e1`, 5.29, FULL FFA package)** as the final entry (manual pick; replaced s2f). A manual pick STICKS: if a later draw scores higher, it must be re-picked explicitly on the page.
+Picked **s2G (BB-0D6A35BC, `b7c0092`, 5.29, full FFA package + Codex review fixes)** as the final entry (manual pick; replaced s2F, which replaced s2f). A manual pick STICKS: if a later draw scores higher, it must be re-picked explicitly on the page.
 | Sat 5:56 AM (Mac) | `5118cbd` (s5f) | salt 5 + FFA layer | 4.73 |
 Codex FFA strategist round dispatched (opening lurk, FFA retreat, vulture, laser LOS, endgame HP race).
 | Sat 6:03 AM (Mac) | `04acbfc` (s6f) | salt 6 + FFA layer | 4.77 |
@@ -161,5 +161,5 @@ Final config pooled: 12.2 pts/match over 16 live matches.
 | Sat 7:45 AM (Mac) | `5e5b798` (s13F) | salt 13 + full FFA package | 4.88 |
 
 ### Codex FFA code review → 3 fixes (FFA-only paths): target grace now from selection time (was renewing forever), lurk 25/30 m hysteresis, latched heal no longer overridden by hold/loot. Kept the 2-death latch (s2F proved it never latches on the practice seeds).
-| Sat 7:57 AM (Mac) | `b7c0092` (s2G) | salt 2 + full FFA package + review fixes: expect exactly 5.29, then re-pick | scoring… |
+| Sat 7:57 AM (Mac) | `b7c0092` (s2G) | salt 2 + full FFA package + review fixes: expect exactly 5.29, then re-pick | **5.29 exactly → PICKED as final entry** |
 Live smoke test of s2G running (16 matches, rooms 2 and 5).
