@@ -62,6 +62,9 @@ P = {
     "ffa_detect": False,  # latch from crossfire or unexplained eliminations
     "ffa_engage": False,  # only take qualifying FFA fights; otherwise avoid via cover
     "ffa_hold": False,    # hold a covered position inside the next circle in the endgame
+    "ffa_lurk": False,    # FFA opening (t<75 s and >9 alive): fight only attackers or mechs within 25 m
+    "ffa_end": False,     # FFA endgame (<=4 alive): only attackers or weak close mechs; hold 0.3*r when r<=70
+    "ffa_heal": False,    # FFA only: disengage when ganged/losing the race, heal in cover, resume at 75% HP
     "salt": 0,            # mixed into the RNG seed (strafe timing etc.); the strategy itself is unchanged
 }
 # offline tuning only: the simulator may override knobs through MF_P (never set in matches)
@@ -236,6 +239,7 @@ class Brain:
         self.stuck_dir = (0.0, 0.0)
         self.stuck_log = []
         self.juke_key = None
+        self.ffa_healing = False
         self.safe_circle = (0.0, 0.0, 1e6)
         self.dmg_in = []
         self.dmg_out = []
@@ -493,7 +497,18 @@ class Brain:
         self.ffa_beam_seen = {k: seen for k, seen in self.ffa_beam_seen.items() if t - seen < 10.0}
 
     def ffa_engageable(self, e, t, alive, hpf, current_target_id):
-        if t - self.attacked_by.get(e["id"], -99.0) < 4.0:
+        attacked = t - self.attacked_by.get(e["id"], -99.0) < 4.0
+        if P["ffa_lurk"] and t < 75.0 and alive > 9:
+            return attacked or e.get("dist", 1e9) < 25.0  # let the others thin out first
+        if P["ffa_end"] and alive <= 4:
+            if attacked:
+                return True
+            hp, max_hp = e.get("hp"), e.get("max_hp") or 1400.0
+            if hp is None:
+                return False
+            frac = float(hp) / float(max_hp)
+            return frac < 0.30 and e.get("dist", 1e9) < 90.0 and hpf >= frac + 0.10
+        if attacked:
             return True
         if e["id"] == current_target_id and t - self.target_t_last < 1.0:
             return True
@@ -1097,6 +1112,20 @@ class Brain:
         hp_low = hpf < P["retreat_hp"]
         if P["berserk"]:
             hp_low = False
+        if self.ffa and P["ffa_heal"]:
+            rate_in = sum(a for _, a in self.dmg_in) / 2.5
+            rate_out = max(40.0, sum(a for _, a in self.dmg_out) / 3.0)
+            ttd = float(me.get("hp", 1.0)) / rate_in if rate_in > 1.0 else 1e9
+            ttk = (float(target.get("hp") or 1400.0) / rate_out) if target is not None else 1e9
+            start = ((hpf < 0.65 and len(visible_threats) >= 2) or (ttd < 0.9 * ttk and ttd < 8.0) or
+                     (hpf < 0.35 and t - self.last_hurt < 4.0))
+            if start:
+                self.ffa_healing = True
+            elif self.ffa_healing and hpf >= 0.75:
+                self.ffa_healing = False
+            if target is not None and target.get("hp") is not None and float(target["hp"]) < 200 and hpf > 0.25:
+                self.ffa_healing = False  # finish it
+            hp_low = self.ffa_healing
         if P["race"] and not P["berserk"]:
             hp_now = float(me.get("hp", 1.0))
             rate_in = sum(a for _, a in self.dmg_in) / 2.5
@@ -1137,7 +1166,8 @@ class Brain:
         elif self.ffa and P["ffa_hold"] and target is None and int(obs.get("alive", 16)) <= 6:
             dn = hyp(px - nx_, py - ny_)
             ang = math.atan2(py - ny_, px - nx_) if dn > 1e-6 else 0.0
-            radius = min(max(0.0, nr * 0.55), max(12.0, dn - 15.0))
+            rk = 0.30 if (P["ffa_end"] and nr <= 70.0) else 0.55
+            radius = min(max(0.0, nr * rk), max(12.0, dn - 15.0))
             gx, gy = nx_ + math.cos(ang) * radius, ny_ + math.sin(ang) * radius
             recent = self.recent_ffa_threat(t, px, py)
             cover = self.find_cover(px, py, [recent], nx_, ny_, nr) if recent is not None else None
