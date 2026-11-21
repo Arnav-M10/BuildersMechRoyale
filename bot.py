@@ -214,6 +214,7 @@ class Brain:
         self.take_block = {}
         self.target_id = None
         self.target_since = 0.0
+        self.target_t_last = -99.0
         self.strafe = 1.0
         self.strafe_until = 0.0
         self.path = None
@@ -532,6 +533,21 @@ class Brain:
             s -= (1.0 - ehp / emax) * 90.0
             if P["tsel"]:
                 s = float(ehp) * (1.0 + d / 120.0) + (0.0 if e["los"] else 1e6)
+            if P["select"]:
+                # giddygiddyboy's practice scoring: distance + 0.2*HP, sticky, low-HP/attacker/closing bonuses
+                if not e["los"] or d > 240.0:
+                    continue
+                s = d + 0.2 * float(ehp)
+                if float(ehp) <= 0.3 * float(emax):
+                    s -= 100.0
+                if e["id"] == self.target_id and t - self.target_t_last < 2.0:
+                    s -= 120.0
+                if t - self.attacked_by.get(e["id"], -99.0) < 4.0:
+                    s -= 40.0
+                ux_, uy_ = unit(px - e["pos"][0], py - e["pos"][1])
+                ev_ = e.get("vel") or [0.0, 0.0, 0.0]
+                if ev_[0] * ux_ + ev_[1] * uy_ > 3.0:
+                    s -= 15.0
             if t - self.attacked_by.get(e["id"], -99) < 3.0:
                 s -= 50.0
             if not e["los"]:
@@ -545,6 +561,8 @@ class Brain:
         if target is not None and target["id"] != self.target_id:
             self.target_id = target["id"]
             self.target_since = t
+        if target is not None:
+            self.target_t_last = t
         if target is None:
             self.target_id = None
 
