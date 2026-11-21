@@ -33,6 +33,8 @@ P = {
     "w_lightning": 4.0,
     "strafe": (0.3, 0.95),  # seconds between strafe flips
     "tol": 0.75,          # fire when predicted miss < tol * target radius
+    "laser_dodge": False,  # boosted direction reversal timed for an enemy laser release
+    "juke_at": 0.5,       # seconds after we first see the charge
 }
 # offline tuning only: the simulator may override knobs through MF_P (never set in matches)
 if os.environ.get("MF_P"):
@@ -108,6 +110,10 @@ def lead_vel(v, pv, T):
     return a * v[0] + b * pv[0], a * v[1] + b * pv[1]
 
 
+def climbing_pending(brain):
+    return brain.climb_req is not None
+
+
 def in_safe_zone(brain, obs, px, py, t):
     """True when we can afford to sit still for ~20 s here without the zone reaching us."""
     cx, cy, cr = Brain.zone_at(obs.get("zone") or {}, t + 20.0)
@@ -172,6 +178,8 @@ class Brain:
         self.stuck_until = -1.0
         self.stuck_dir = (0.0, 0.0)
         self.stuck_log = []
+        self.juke_key = None
+        self.juke_dir = 1.0
         self.cover_goal = None
         self.cover_t = -99.0
         self.home = None
@@ -897,6 +905,13 @@ class Brain:
                 ix, iy = unit(lx - px, ly - py)
                 mv = (mv[0] * 0.3 + ix, mv[1] * 0.3 + iy)
 
+        # ---- an enemy laser is charging at us: hard reversal + boost just before it can release
+        if P["laser_dodge"] and not climbing_pending(self):
+            jk = self.laser_juke(t, px, py, pz, vx, vy, visible_threats, energy)
+            if jk is not None:
+                mv, boost = jk, energy > 8
+                label += " juke"
+
         if dodge is not None:
             dx_, dy_, urgent = dodge
             if urgent:
@@ -957,6 +972,36 @@ class Brain:
         if charging:
             boost = False  # half speed anyway, keep energy
         return mv, boost, jump, label
+
+    def laser_juke(self, t, px, py, pz, vx, vy, visible_threats, energy):
+        """Movement to slip an incoming laser: the shooter's charge is visible and it fires along
+        its aim when released (full charge after ~0.75 s), so reverse lateral direction near then."""
+        best = None
+        for e in visible_threats:
+            if not e.get("charging"):
+                continue
+            t0 = self.charge_seen.get(e["id"])
+            if t0 is None:
+                continue
+            ex, ey = e["pos"][0], e["pos"][1]
+            d = hyp(px - ex, py - ey)
+            if d < 1.0:
+                continue
+            ang = abs(wrap(math.atan2(py - ey, px - ex) - (e.get("aim") or [0, 0])[0]))
+            if ang > math.atan2(6.0, d) + 0.04:
+                continue  # not pointed at us
+            el = t - t0
+            if el < P["juke_at"] - 0.25:
+                continue
+            ux, uy = unit(px - ex, py - ey)
+            perp = (-uy, ux)
+            side = 1.0 if (vx * perp[0] + vy * perp[1]) >= 0 else -1.0
+            key = (e["id"], round(t0, 2))
+            if self.juke_key != key:
+                self.juke_key = key
+                self.juke_dir = -side  # reverse whatever we were doing
+            best = (perp[0] * self.juke_dir, perp[1] * self.juke_dir)
+        return best
 
     def strafe_vec(self, t, px, py, e):
         if t >= self.strafe_until:
