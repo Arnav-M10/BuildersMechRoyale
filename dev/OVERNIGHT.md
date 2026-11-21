@@ -105,3 +105,4 @@ NOTE: the chosen practice submission IS the bot that plays qualifying/final, so 
 ## Leaderboard at ~5:20 AM (Mac): 224 teams; top-32 line ≈ 5.23; we're 27th at 5.29; leader 5.96.
 | Sat 5:23 AM (Mac) | `87a0559` (s2f) | salt 2 + FFA layer on: practice-neutrality check (expect exactly 5.29) | scoring… |
 Plan: if s2f reproduces 5.29, all further salt draws include the FFA layer so any lucky draw is also the best final bot.
+Salt+FFA draws ready: s4f `a5fac69`, s5f `5118cbd`, s6f `04acbfc`, s7f `2d4148f`. More live FFA A/B running (layer on in room 2, off in room 4, 6 each).
