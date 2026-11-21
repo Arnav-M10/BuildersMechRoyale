@@ -55,6 +55,7 @@ P = {
     "wdist": False,       # with want_d: lightning 30 m, laser want_d, gun-only 70 m; >=70 m if outnumbered or vs lightning
     "upg": "default",     # upgrade order: "default", "econ" (TTUN), "inv" (Team Inventors)
     "want_laser": 0.0,    # >0: hold this distance instead of want_d while carrying a laser
+    "selfcomp": False,    # aim from where our muzzle will be (own velocity x 0.075 s); travel from the 3 m spawn point
 }
 # offline tuning only: the simulator may override knobs through MF_P (never set in matches)
 if os.environ.get("MF_P"):
@@ -588,7 +589,10 @@ class Brain:
                 los_ok = shoot["los"]
             else:
                 los_ok = self.los(muzzle, com, skip_end=rad + 0.5)
-            d3 = math.sqrt((com[0] - px) ** 2 + (com[1] - py) ** 2 + (com[2] - mz) ** 2)
+            ox, oy = px, py
+            if P["selfcomp"]:
+                ox, oy = px + vx * 0.075, py + vy * 0.075  # where the muzzle is when the shot leaves
+            d3 = math.sqrt((com[0] - ox) ** 2 + (com[1] - oy) ** 2 + (com[2] - mz) ** 2)
             gst = (gun_w or {}).get("stats") or self.W.get("gun") or {}
             gspeed = float(gst.get("speed", 252.0))
             grange = float(gst.get("range", 230.0))
@@ -596,19 +600,20 @@ class Brain:
             hitscan = laser_w is not None and laser_charge >= laser_full - 0.12 and los_ok
             if gun_w is None:
                 hitscan = True
+            lat = 0.075 if P["selfcomp"] else 0.05
             if hitscan:
                 tp = (com[0] + svel[0] * 0.07, com[1] + svel[1] * 0.07, com[2] + clamp(svel[2] * 0.07, -1, 1))
             else:
-                tlead = d3 / gspeed + 0.05
+                tlead = (max(0.0, d3 - 3.0) if P["selfcomp"] else d3) / gspeed + lat
                 tp = com
                 for _ in range(3):
                     vzl = clamp(svel[2] * tlead, -3.0, 3.0)
                     ex_, ey_ = lead_vel(svel, pvel, tlead)
                     tp = (com[0] + ex_ * tlead, com[1] + ey_ * tlead, com[2] + vzl)
-                    dd = math.sqrt((tp[0] - px) ** 2 + (tp[1] - py) ** 2 + (tp[2] - mz) ** 2)
-                    tlead = dd / gspeed + 0.05
-            hd = hyp(tp[0] - px, tp[1] - py)
-            aim_yaw = math.atan2(tp[1] - py, tp[0] - px)
+                    dd = math.sqrt((tp[0] - ox) ** 2 + (tp[1] - oy) ** 2 + (tp[2] - mz) ** 2)
+                    tlead = (max(0.0, dd - 3.0) if P["selfcomp"] else dd) / gspeed + lat
+            hd = hyp(tp[0] - ox, tp[1] - oy)
+            aim_yaw = math.atan2(tp[1] - oy, tp[0] - ox)
             aim_pitch = clamp(math.atan2(tp[2] - mz, max(hd, 0.1)), min_pitch, max_pitch)
             yaw_err = abs(wrap(aim_yaw - my_aim[0]))
             pit_err = abs(aim_pitch - my_aim[1])
