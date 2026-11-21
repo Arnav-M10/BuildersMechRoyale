@@ -32,3 +32,4 @@ Typical loss: a 130–160 m gun duel against the first hunter, then a flight acr
 | Time | Commit | What | Score |
 |---|---|---|---|
 | Sat 2:55 AM | `2dfc546` (exp/v5) | berserk + 110 m + hp×dist targeting + mid-fight looting (sim: +1.02 ± 0.67 over base, 48 seeds) | **5.13** (from 3.81; above the 4.96 top-32 cutoff) |
+| Sat ~3:00 AM | `b7bb624` (main) | v5 + zone-forecast fix (server sends the current circle) + displacement stuck check | 5.10 (= v5 within noise; kept, it's correct) |
