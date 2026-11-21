@@ -129,5 +129,5 @@ Note: first match in all 3 arms died at ~16 s (place 15-16) before the FFA detec
 - B + lurk + end: 16,1,1,1,9,12,1,1 → 10.8 (5 wins)
 - C + heal: 15,1,3,1,4,8,1,2 → 11.6
 Round 2 running: A vs D (lurk+end+heal) vs C (heal).
-| Sat 6:23 AM (Mac) | `2d4148f` (s7f) | salt 7 + FFA layer | scoring… |
+| Sat 6:23 AM (Mac) | `2d4148f` (s7f) | salt 7 + FFA layer | 5.19 |
 Added knob ffa_fast (2 unexplained pre-shrink deaths latch FFA) for the opening-death problem.
