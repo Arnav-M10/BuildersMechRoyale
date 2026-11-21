@@ -131,3 +131,4 @@ Note: first match in all 3 arms died at ~16 s (place 15-16) before the FFA detec
 Round 2 running: A vs D (lurk+end+heal) vs C (heal).
 | Sat 6:23 AM (Mac) | `2d4148f` (s7f) | salt 7 + FFA layer | 5.19 |
 Added knob ffa_fast (2 unexplained pre-shrink deaths latch FFA) for the opening-death problem.
+Draws ready: s8f `c2d3038`, s9f `6e55960`, s10f `c7d43a9`, s11f `99206b4`.
