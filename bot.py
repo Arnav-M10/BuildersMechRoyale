@@ -66,6 +66,9 @@ P = {
     "ffa_end": False,     # FFA endgame (<=4 alive): only attackers or weak close mechs; hold 0.3*r when r<=70
     "ffa_heal": False,    # FFA only: disengage when ganged/losing the race, heal in cover, resume at 75% HP
     "ffa_fast": False,    # latch FFA on 2 (not 3) unexplained deaths before the first zone shrink
+    "ffa_juke": False,    # FFA only: timed laser juke (laser_dodge) once FFA is latched
+    "lurk_t": 75.0,       # ffa_lurk lasts until this match time...
+    "lurk_alive": 9,      # ...or until this many mechs are left
     "salt": 0,            # mixed into the RNG seed (strafe timing etc.); the strategy itself is unchanged
 }
 # offline tuning only: the simulator may override knobs through MF_P (never set in matches)
@@ -499,7 +502,7 @@ class Brain:
 
     def ffa_engageable(self, e, t, alive, hpf, current_target_id):
         attacked = t - self.attacked_by.get(e["id"], -99.0) < 4.0
-        if P["ffa_lurk"] and t < 75.0 and alive > 9:
+        if P["ffa_lurk"] and t < P["lurk_t"] and alive > P["lurk_alive"]:
             return attacked or e.get("dist", 1e9) < 25.0  # let the others thin out first
         if P["ffa_end"] and alive <= 4:
             if attacked:
@@ -1230,7 +1233,7 @@ class Brain:
                 mv = (mv[0] * 0.3 + ix, mv[1] * 0.3 + iy)
 
         # ---- an enemy laser is charging at us: hard reversal + boost just before it can release
-        if P["laser_dodge"] and not climbing_pending(self):
+        if (P["laser_dodge"] or (self.ffa and P["ffa_juke"])) and not climbing_pending(self):
             jk = self.laser_juke(t, px, py, pz, vx, vy, visible_threats, energy)
             if jk is not None:
                 mv, boost = jk, energy > 8
