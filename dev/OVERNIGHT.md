@@ -35,6 +35,7 @@ Typical loss: a 130–160 m gun duel against the first hunter, then a flight acr
 | Sat ~3:00 AM | `b7bb624` (main) | v5 + zone-forecast fix (server sends the current circle) + displacement stuck check | 5.10 (= v5 within noise; kept, it's correct) |
 | Sat ~3:05 AM | `bee838d` (exp/v7) | v5 + TTUN-style economy (sim +1.03 ± 0.47 vs v5) | **4.56** (worse than 5.13: the sim overrates farming; econ stays off) |
 | Sat 3:22 AM | `173b7c0` (exp/v8) | v6 + TTUN gun tolerance on the gun's own lead (both top public bots fire much more freely) | 4.79 (worse; gtol stays off) |
+| Sat 2:55 AM (Mac) | `0fdb4d9` (exp/v9) | v6 + Inventors' upgrade order | scoring… |
 
 ## Sim sweeps since v5
 | Seeds | Variant (vs v5) | Result |
@@ -51,3 +52,5 @@ Codex diffed us against Inventors and TTUN and found: want_d overrode weapon ran
 ## Quiet mode (user asleep, fans) until ~4:30 AM Mac time, then max mode
 Testing only on the real server, about one submission per 15 minutes, one change at a time on top of the best (5.13 v5 / 5.10 v6).
 Queue: v9 = Inventors' upgrade order (`0fdb4d9`, built and checked); v10 = slower strafing (1.0–2.6 s flips, from the 'not even close' 5.21 bot); v11 = 145 m distance with a laser (same source).
+
+v10 (`575bceb`, slower strafing) built and checked; submit at the next paced slot. v11 (want_laser 145) next.
