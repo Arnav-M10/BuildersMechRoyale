@@ -258,5 +258,6 @@ Branch exp/giddy-go `4712fc5`: giddygiddyboy's `mech/` package (latest copy we h
 Kill-lever sim sweep (64 m, load ~110 so noisy): base 5.81, dmg 5.72, focus 5.56, hunt 4.44 (bad) — matches weak real results (gk 5.10, gka 5.08).
 Codex radical (sim 48 m): baseline 5.48, NPC lure 6.13 (+0.65, triggered 9/48), zone trap 4.83, choke 4.46, drop bait no-op. Merged default-off. Lure draws glu67 `e703baf`, glu68 `d196399` (docker PASS).
 Go bot 5.67 < the 6.19 the copy-teams get → our snapshot (latest, with LootRadius 120 / HPw .18 / Backstab code) may be a worse version than theirs. Testing older snapshots (giddy3 ~11 AM, giddy2 ~9 AM).
-| Sat 3:04 PM (Mac) | `3ec3a38` (go-giddy3) | Go bot, giddy3 snapshot (~11 AM) | scoring… |
+| Sat 3:04 PM (Mac) | `3ec3a38` (go-giddy3) | Go bot, giddy3 snapshot (~11 AM) | **6.17** → PICKED (BB-F0805900) |
 Queued: go-giddy2 `a7ee4ca` (~9 AM snapshot), glu67 `e703baf`, glu68 `d196399`.
+Board 3:05 PM: line 5.98 (32nd BackwardsDeployeds); 6.17 puts us ~top 25.
