@@ -57,6 +57,7 @@ P = {
     "want_laser": 0.0,    # >0: hold this distance instead of want_d while carrying a laser
     "selfcomp": False,    # aim from where our muzzle will be (own velocity x 0.075 s); travel from the 3 m spawn point
     "duck": False,        # gun-only and reloading: step to a spot within ~12 m out of the target's sight
+    "select": False,      # engage only close/attacking/approaching/weak/aiming mechs, or late (giddygiddyboy rules)
 }
 # offline tuning only: the simulator may override knobs through MF_P (never set in matches)
 if os.environ.get("MF_P"):
@@ -132,6 +133,13 @@ def lead_vel(v, pv, T):
     else:
         a, b = 1.37, -0.56
     return a * v[0] + b * pv[0], a * v[1] + b * pv[1]
+
+
+def zone_obs_next_r(obs):
+    try:
+        return float((obs.get("zone") or {}).get("next_radius", 1e9))
+    except Exception:
+        return 1e9
 
 
 def climbing_pending(brain):
@@ -513,9 +521,12 @@ class Brain:
 
         target = None
         best = 1e18
+        late = float(zone_obs_next_r(obs)) <= 70.0 or int(obs.get("alive") or 16) <= 3
         for e in tlist:
             d = e["dist"]
             ehp = e.get("hp") or 1400.0
+            if P["select"] and not late and not self.engageable(e, px, py, t):
+                continue
             emax = e.get("max_hp") or 1400.0
             s = d
             s -= (1.0 - ehp / emax) * 90.0
@@ -1177,6 +1188,25 @@ class Brain:
                     return (pos[0] + ring * 0.45 * math.cos(t * 1.3), pos[1] + ring * 0.45 * math.sin(t * 1.3), "drop")
                 return (pos[0], pos[1], "drop")
         return None
+
+    def engageable(self, e, px, py, t):
+        """giddygiddyboy's practice engage rule: fight mechs that are close, hitting us, closing in,
+        weak, or aiming at us; leave the rest alone until they come."""
+        d = e["dist"]
+        if d < 60.0 or t - self.attacked_by.get(e["id"], -99.0) < 6.0:
+            return True
+        ex, ey = e["pos"][0], e["pos"][1]
+        ux, uy = unit(px - ex, py - ey)
+        v = e.get("vel") or [0.0, 0.0, 0.0]
+        if v[0] * ux + v[1] * uy > 3.0 and d < 180.0:
+            return True
+        ehp, emax = e.get("hp"), e.get("max_hp") or 1400.0
+        if ehp is not None and float(ehp) < 0.4 * float(emax) and d < 160.0:
+            return True
+        aim = e.get("aim") or [0.0, 0.0]
+        if abs(wrap(math.atan2(py - ey, px - ex) - aim[0])) < 0.22 and d < 190.0:
+            return True
+        return False
 
     def duck_find(self, t, px, py, e):
         """A free spot 6 or 12 m away that the target's eye cannot see (re-evaluated every 0.5 s)."""
