@@ -247,7 +247,10 @@ Transplants from JishnuMadav onto the giddy core: drops 5.10, full set 4.92 vs g
 | Sat 2:23 PM (Mac) | `4f60b2d` (gk64) | gfc + hunt_early + focus + killloot | 5.10 |
 Codex kill levers merged (dev/KILLS.md). Codex dispatched: RADICAL environmental kills (lure hunters into NPC drones, zone traps, choke ambush).
 Calibration (sim 64 matches vs real mean): ours 6.11/4.93, gs 6.41/4.96, gd 7.17/5.06, gn 7.27/5.15 → same ordering (sim gaps ~5x real).
-| Sat 2:36 PM (Mac) | `d416723` (gka66) | gfc + all five kill levers | scoring… |
+| Sat 2:36 PM (Mac) | `d416723` (gka66) | gfc + all five kill levers | 5.08 |
 Board 2:35 PM: 289 teams; ~12 teams tied at EXACTLY 6.19 (incl. giddygiddyboy) → almost certainly verbatim copies of giddy's public code. Top-32 line ≈ 5.85 (benchmaster). Our re-implementation ≈ 5.2.
 Sim noise: per-match σ≈4.5 → 64-match mean ±0.55; calibration diffs mostly noise (gfc sim 6.31 vs gn 7.27, but real gfc ≥ gn). Need ≥192 matches per arm.
 Calibration complete (sim 64 / real): ours 6.11/4.93, gs 6.41/4.96, gd 7.17/5.06, gn 7.27/5.15, gv 7.44/4.93, gfc 6.31/5.23, gdr 6.34/5.10, gx 5.30/4.92. Weak correlation; both agree gx is worst and giddy > ours. Use sim only to screen out big regressions.
+
+## USER DECISION (2:40 PM): "submit giddy's Go code just to be safe while improving our own bot to beat it".
+Branch exp/giddy-go `4712fc5`: giddygiddyboy's `mech/` package (latest copy we have, MIT, credited in LICENSE-giddygiddyboy + NOTICE.md) + our own cmd/bot/main.go wrapper (skip-to-newest obs, events carried forward). Docker check PASS (0 late, 0 dropped). Paced replay of the official stream: fires 36, moves 297/300. (Our sim gives it 0 kills — our sim's hello config lacks fields their code reads; irrelevant for the real server.) Tree 2.34 MB.
