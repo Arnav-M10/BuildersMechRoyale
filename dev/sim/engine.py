@@ -71,6 +71,45 @@ def yaw_pitch(src, dst):
     return math.atan2(dy, dx), math.atan2(dz, max(1e-9, math.hypot(dx, dy)))
 
 
+def zone_state_at(phases, circles, t, max_time):
+    """Build the protocol zone fields at time ``t`` from this match's config.
+
+    The configured hold/shrink values are authoritative (they differ between
+    server configurations). Keeping this pure lets zone_check.py compare the
+    exact engine timeline with recorded observations without constructing a
+    full Match or map.
+    """
+    t = float(t)
+    prev = circles[0]
+    phase_start = 0.0
+    for i, p in enumerate(phases):
+        hold = float(p["hold_s"])
+        shrink = float(p["shrink_s"])
+        ss, se = phase_start + hold, phase_start + hold + shrink
+        nxt = circles[i + 1]
+        if t < se or i == len(phases) - 1:
+            if t <= ss:
+                c, r = prev[1], prev[2]
+            else:
+                f = clamp((t - ss) / max(1e-9, shrink), 0.0, 1.0)
+                c = (prev[1][0] + (nxt[1][0] - prev[1][0]) * f,
+                     prev[1][1] + (nxt[1][1] - prev[1][1]) * f)
+                r = prev[2] + (nxt[2] - prev[2]) * f
+            return {"center": [c[0], c[1]], "radius": r,
+                    "next_center": [nxt[1][0], nxt[1][1]],
+                    "next_radius": nxt[2], "shrink_start": ss,
+                    "shrink_end": se, "dps": float(p["dps"])}, i
+        phase_start = se
+        prev = nxt
+    # Configs require at least one phase; retain a defensive fallback for a
+    # malformed/empty schedule instead of indexing an absent final phase.
+    last = circles[-1]
+    return {"center": [last[1][0], last[1][1]], "radius": last[2],
+            "next_center": [last[1][0], last[1][1]], "next_radius": last[2],
+            "shrink_start": float(max_time), "shrink_end": float(max_time),
+            "dps": float(phases[-1]["dps"]) if phases else 0.0}, max(0, len(phases) - 1)
+
+
 @dataclass
 class Weapon:
     kind: str
@@ -288,38 +327,8 @@ class Match:
         return rebuilt
 
     def zone_state(self, t=None):
-        t = self.t if t is None else float(t)
-        phases = self.cfg["zone"]["phases"]
-        prev = self.zone_circles[0]
-        phase_idx = len(phases) - 1
-        phase_start = 0.0
-        for i, p in enumerate(phases):
-            hold = float(p["hold_s"])
-            shrink = float(p["shrink_s"])
-            ss, se = phase_start + hold, phase_start + hold + shrink
-            nxt = self.zone_circles[i + 1]
-            if t < se or i == len(phases) - 1:
-                phase_idx = i
-                if t <= ss:
-                    c, r = prev[1], prev[2]
-                else:
-                    f = clamp((t - ss) / max(1e-9, shrink), 0.0, 1.0)
-                    c = (prev[1][0] + (nxt[1][0] - prev[1][0]) * f,
-                         prev[1][1] + (nxt[1][1] - prev[1][1]) * f)
-                    r = prev[2] + (nxt[2] - prev[2]) * f
-                future = nxt
-                return {"center": [c[0], c[1]], "radius": r,
-                        "next_center": [future[1][0], future[1][1]],
-                        "next_radius": future[2], "shrink_start": ss,
-                        "shrink_end": se, "dps": float(p["dps"])}, phase_idx
-            phase_start = se
-            prev = nxt
-        p = phases[-1]
-        last = self.zone_circles[-1]
-        return {"center": list(last[1]), "radius": last[2],
-                "next_center": list(last[1]), "next_radius": last[2],
-                "shrink_start": self.max_time, "shrink_end": self.max_time,
-                "dps": float(p["dps"])}, len(phases)-1
+        return zone_state_at(self.cfg["zone"]["phases"], self.zone_circles,
+                             self.t if t is None else t, self.max_time)
 
     def _spawn_actors(self):
         z = self.zone_state(0)[0]
