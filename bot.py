@@ -48,6 +48,7 @@ P = {
     "want_d": 0.0,        # >0: hold this fight distance (smooth radial), instead of weapon bands
     "tsel": False,        # target = lowest hp * (1 + dist/120) among visible
     "fightloot": False,   # mid-fight: scoop cubes <30 m, fetch a better weapon <200 m, take drops
+    "econ": False,        # TTUN-style economy: hunt drones/crates/drops for cubes; armor/plating/nanites first
 }
 # offline tuning only: the simulator may override knobs through MF_P (never set in matches)
 if os.environ.get("MF_P"):
@@ -133,6 +134,14 @@ def in_safe_zone(brain, obs, px, py, t):
     """True when we can afford to sit still for ~20 s here without the zone reaching us."""
     cx, cy, cr = Brain.zone_at(obs.get("zone") or {}, t + 20.0)
     return hyp(px - cx, py - cy) < cr - 10.0
+
+
+UPGRADE_RANK_ECON = [
+    "armor", "plating", "nanites", "gun_damage", "laser_damage", "laser_charge", "gun_rate",
+    "lightning_efficiency", "gun_mag", "lightning_range", "gyros", "servos", "gun_velocity",
+    "capacitor", "reactor", "jets", "sensors", "lightning_chain", "laser_pierce",
+    "mortar_reload", "mortar_velocity", "mortar_splash",
+]
 
 
 class Brain:
@@ -390,7 +399,8 @@ class Brain:
         best, bi = 1e9, 0
         for i, c in enumerate(ch):
             cid = c.get("id")
-            r = UPGRADE_RANK.index(cid) if cid in UPGRADE_RANK else 50
+            rank = UPGRADE_RANK_ECON if P["econ"] else UPGRADE_RANK
+            r = rank.index(cid) if cid in rank else 50
             if r < best:
                 best, bi = r, i
         return bi
@@ -697,7 +707,7 @@ class Brain:
             if s < bs:
                 rec = {"id": cid, "pos": pos, "kind": "crate", "hp": chp, "vel": [0, 0, 0]}
                 best, bs = rec, s
-        if hpf > 0.6:
+        if hpf > (0.5 if P["econ"] else 0.6):
             for n in self.npcs.values():
                 if self.t - n["seen"] > 0.01:
                     continue
@@ -1242,6 +1252,14 @@ class Brain:
     def wander(self, obs, me, t, px, py, pz, hpf, energy, kinds, threats, zx, zy, zr, lx, ly, lr,
                nx_, ny_, nr, ss, farm):
         """Loot, then hold a covered spot inside the next zone."""
+        if P["econ"]:
+            r = self.econ_goal(obs, t, px, py, pz, hpf, kinds, zx, zy, zr)
+            if r is not None:
+                gx, gy, why = r
+                d = hyp(gx - px, gy - py)
+                if d < 1.5:
+                    return (0.0, 0.0), False, "econ-" + why
+                return self.nav_to(px, py, gx, gy), energy > 70 and d > 60 and not threats, "econ-" + why
         # regen discipline: hurt and recently in a fight -> stand still somewhere hidden until healed
         # (regen needs 5 s without damage dealt/taken; standing still is also silent)
         if P["regen"] and hpf < P["regen_hp"] and t - max(self.last_hurt, self.last_hit_dealt) < 40.0 and in_safe_zone(self, obs, px, py, t):
@@ -1372,6 +1390,69 @@ class Brain:
             return g.comp_at(x, y) == self.my_comp
         except Exception:
             return True
+
+    def econ_goal(self, obs, t, px, py, pz, hpf, kinds, zx, zy, zr):
+        """TTUN-style loot choice (lower score is better): drops d-80, weapons d-20*pref, cubes d-30,
+        drones (HP>50%, <170 m: close to 38 m) d-20, crates (HP>45%, <150 m: close to 30 m) d+5."""
+        zone = obs.get("zone") or {}
+        nx_, ny_ = (zone.get("next_center") or [zx, zy])[:2]
+        nr = float(zone.get("next_radius", zr))
+        ss = float(zone.get("shrink_start", 1e9))
+        dn = hyp(px - nx_, py - ny_)
+        if dn > nr * 0.8 and t > ss - max(0.0, dn - nr * 0.6) / 11.0 - 12.0:
+            return None  # time to move into the next circle: let the normal logic handle it
+        cx, cy, cr = self.zone_at(zone, t + 12.0)
+
+        def ok(x, y):
+            return hyp(x - cx, y - cy) < cr - 8.0 and self.reachable(x, y)
+
+        best, bs = None, 1e18
+        pref = {"laser": 2.6, "lightning": 2.4}
+        for pid, (kind, pos, seen) in self.pickups.items():
+            if self.take_block.get(pid, -1) > t or self.pickup_gain(kind, kinds, False) is None:
+                continue
+            if pos[2] - self.ground(pos[0], pos[1]) > 2.5 or not ok(pos[0], pos[1]):
+                continue
+            sc = hyp(pos[0] - px, pos[1] - py) - pref.get(kind, 1.0) * 20.0
+            if sc < bs:
+                best, bs = (pos[0], pos[1], "arm"), sc
+        for cid, (pos, seen) in self.cubes_mem.items():
+            if pos[2] - self.ground(pos[0], pos[1]) > 2.5 or not ok(pos[0], pos[1]):
+                continue
+            sc = hyp(pos[0] - px, pos[1] - py) - 30.0
+            if sc < bs:
+                best, bs = (pos[0], pos[1], "cube"), sc
+        for dr in obs.get("drops") or []:
+            pos = dr.get("pos")
+            if not pos or (dr.get("holder") not in (None, self.my_id)):
+                continue
+            d = hyp(pos[0] - px, pos[1] - py)
+            if d > 220 or float(dr.get("lands_in") or 0) > d / 11.7 + 3.0 or not ok(pos[0], pos[1]):
+                continue
+            sc = d - 80.0
+            if sc < bs:
+                ring = float(dr.get("radius") or 8.0)
+                best, bs = ((px, py, "drop") if d < ring - 3.0 else (pos[0], pos[1], "drop")), sc
+        if hpf > 0.5:
+            for n in self.npcs.values():
+                pos = n["pos"]
+                d = hyp(pos[0] - px, pos[1] - py)
+                if d > 170 or (n.get("hp") or 350) <= 0 or not ok(pos[0], pos[1]):
+                    continue
+                sc = d - 20.0
+                if sc < bs:
+                    best, bs = ((pos[0], pos[1], "drone") if d > 38 else (px, py, "drone")), sc
+        if hpf > 0.45:
+            for cid, (pos, chp, seen) in self.crates.items():
+                if pos[2] - self.ground(pos[0], pos[1]) > 2.5 or not ok(pos[0], pos[1]):
+                    continue
+                d = hyp(pos[0] - px, pos[1] - py)
+                if d > 150:
+                    continue
+                sc = d + 5.0
+                if sc < bs:
+                    best, bs = ((pos[0], pos[1], "crate") if d > 30 else (px, py, "crate")), sc
+        return best
 
     def pick_home(self, px, py, cx, cy, r):
         """A cover node inside the circle, on our side of its centre."""
