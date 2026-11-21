@@ -8,6 +8,11 @@ import (
 
 const lat = 0.075
 
+// FFA switches are evaluated only after the practice classifier opts out.
+const (
+	ffaEndgameMode = true
+)
+
 type Track struct {
 	MechSeen
 	Seen    float64
@@ -358,6 +363,12 @@ func (b *Brain) observe(o *Obs) {
 	}
 }
 
+
+// ffaOnly excludes practice during the classifier warmup and while squad mode is active.
+func (b *Brain) ffaOnly() bool {
+	return !b.pracOn && (b.notPractice || !b.base.Practice)
+}
+
 func (b *Brain) zoneAt(z *Zone, t float64) circle {
 	if t <= z.ShrinkStart || z.ShrinkEnd <= z.ShrinkStart {
 		return b.hold
@@ -571,6 +582,12 @@ func (b *Brain) step(o *Obs, act *Action) {
 		case aimed && t.Dist < 190:
 			t.Engage = true
 		}
+		if ffaEndgameMode && b.ffaOnly() && o.Alive <= 4 {
+			targetHP := t.HP / math.Max(1, t.MaxHP)
+			attacked := now-t.HitMe < 4
+			weakAndAhead := targetHP < 0.30 && hpFrac > targetHP+0.15
+			t.Engage = (attacked || weakAndAhead) && t.Dist < maxT
+		}
 		if t.Engage && !t.LOS && t.Dist < maxT && (hidden == nil || t.Dist < hidden.Dist) {
 			hidden = t
 		}
@@ -681,6 +698,9 @@ func (b *Brain) step(o *Obs, act *Action) {
 
 	zgx, zgy := b.zoneGoal(z, x, y)
 	zdist := hyp(zgx-x, zgy-y)
+	ffaEndgame := ffaEndgameMode && b.ffaOnly() && o.Alive <= 4
+	endSafeRadius := math.Max(0, z.NextRadius-clamp(0.3*z.NextRadius, 3, 30)-5)
+	endOutsideNext := hyp(x-z.NextCenter[0], y-z.NextCenter[1]) > endSafeRadius+1
 	tNeed := zdist*1.45/st.WalkSpeed + 4
 	deadline := b.zoneDeadline(z, x, y, 8)
 	zoneMust := !me.InZone || now+tNeed+3 >= deadline
@@ -696,6 +716,24 @@ func (b *Brain) step(o *Obs, act *Action) {
 	case b.dodgeShell(o, &mx, &my):
 		boost = me.Energy > 15
 		mode = "dodge"
+	case ffaEndgame && endOutsideNext:
+		mx, my = b.travel(me, zgx, zgy)
+		boost = me.Energy > 5 && zdist > 2
+		mode = "ffa-zone"
+	case ffaEndgame && target == nil:
+		if b.coverMove(o, seen, &mx, &my) {
+			if hyp(b.coverGoal[0]-z.NextCenter[0], b.coverGoal[1]-z.NextCenter[1]) > endSafeRadius+1 {
+				mx, my = b.travel(me, zgx, zgy)
+				boost = me.Energy > 5 && zdist > 2
+				mode = "ffa-zone"
+			} else {
+				boost = me.Energy > 10 && (mx != 0 || my != 0)
+				mode = "ffa-cover"
+			}
+		} else {
+			mx, my = 0, 0
+			mode = "ffa-hold"
+		}
 	case zoneMust && zdist > 2:
 		mx, my = b.travel(me, zgx, zgy)
 		boost = (!me.InZone || now+tNeed >= deadline) && me.Energy > 5
