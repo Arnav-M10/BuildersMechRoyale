@@ -503,7 +503,8 @@ class Brain:
     def ffa_engageable(self, e, t, alive, hpf, current_target_id):
         attacked = t - self.attacked_by.get(e["id"], -99.0) < 4.0
         if P["ffa_lurk"] and t < P["lurk_t"] and alive > P["lurk_alive"]:
-            return attacked or e.get("dist", 1e9) < 25.0  # let the others thin out first
+            d_ = e.get("dist", 1e9)
+            return attacked or d_ < 25.0 or (e["id"] == current_target_id and d_ < 30.0)  # let others thin out
         if P["ffa_end"] and alive <= 4:
             if attacked:
                 return True
@@ -514,7 +515,7 @@ class Brain:
             return frac < 0.30 and e.get("dist", 1e9) < 90.0 and hpf >= frac + 0.10
         if attacked:
             return True
-        if e["id"] == current_target_id and t - self.target_t_last < 1.0:
+        if e["id"] == current_target_id and t - self.target_since < 1.0:
             return True
         if e.get("dist", 1e9) < 35.0 or alive <= 4:
             return True
@@ -1167,7 +1168,8 @@ class Brain:
             else:
                 mv = (0.0, 0.0)
             label = "ffa-hide"
-        elif self.ffa and P["ffa_hold"] and target is None and int(obs.get("alive", 16)) <= 6:
+        elif (self.ffa and P["ffa_hold"] and target is None and int(obs.get("alive", 16)) <= 6
+              and not (P["ffa_heal"] and self.ffa_healing)):
             dn = hyp(px - nx_, py - ny_)
             ang = math.atan2(py - ny_, px - nx_) if dn > 1e-6 else 0.0
             rk = 0.30 if (P["ffa_end"] and nr <= 70.0) else 0.55
@@ -1210,6 +1212,8 @@ class Brain:
             if visible_threats and self.cover_goal is not None and label == "hide":
                 # still seen at the cover spot: look again
                 self.cover_t = -99
+        elif self.ffa and P["ffa_heal"] and self.ffa_healing and not threats:
+            mv, label = (0.0, 0.0), "ffa-heal"  # nothing around: stand still (silent) until 75% HP
         elif fight and P["fightloot"] and self.fight_loot(obs, t, px, py, pz, hpf, kinds, target) is not None:
             gx, gy, why = self.fight_loot(obs, t, px, py, pz, hpf, kinds, target)
             mv = self.nav_to(px, py, gx, gy)
