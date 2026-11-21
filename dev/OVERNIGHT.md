@@ -250,3 +250,4 @@ Calibration (sim 64 matches vs real mean): ours 6.11/4.93, gs 6.41/4.96, gd 7.17
 | Sat 2:36 PM (Mac) | `d416723` (gka66) | gfc + all five kill levers | scoring… |
 Board 2:35 PM: 289 teams; ~12 teams tied at EXACTLY 6.19 (incl. giddygiddyboy) → almost certainly verbatim copies of giddy's public code. Top-32 line ≈ 5.85 (benchmaster). Our re-implementation ≈ 5.2.
 Sim noise: per-match σ≈4.5 → 64-match mean ±0.55; calibration diffs mostly noise (gfc sim 6.31 vs gn 7.27, but real gfc ≥ gn). Need ≥192 matches per arm.
+Calibration complete (sim 64 / real): ours 6.11/4.93, gs 6.41/4.96, gd 7.17/5.06, gn 7.27/5.15, gv 7.44/4.93, gfc 6.31/5.23, gdr 6.34/5.10, gx 5.30/4.92. Weak correlation; both agree gx is worst and giddy > ours. Use sim only to screen out big regressions.
