@@ -58,6 +58,7 @@ P = {
     "selfcomp": False,    # aim from where our muzzle will be (own velocity x 0.075 s); travel from the 3 m spawn point
     "duck": False,        # gun-only and reloading: step to a spot within ~12 m out of the target's sight
     "select": False,      # engage only close/attacking/approaching/weak/aiming mechs, or late (giddygiddyboy rules)
+    "posearch": False,    # fight movement = best of stay + 16 spots 6 m away (range, LOS when ready, crossfire, zone, cubes)
 }
 # offline tuning only: the simulator may override knobs through MF_P (never set in matches)
 if os.environ.get("MF_P"):
@@ -230,6 +231,10 @@ class Brain:
         self.dmg_out = []
         self.kill_spots = []
         self.gun_busy = False
+        self.has_special = False
+        self.muzzle_h = 7.0
+        self.eye_h = 8.0
+        self.pz_now = 0.0
         self.duck_spot = None
         self.duck_t = -99.0
         self.juke_dir = 1.0
@@ -458,6 +463,10 @@ class Brain:
         cubes = float(me.get("cubes", 0))
         self.update_memory(obs, me)
         self.gun_busy = False
+        self.has_special = any(w and w.get("kind") in ("laser", "lightning") for w in (me.get("weapons") or []))
+        self.muzzle_h = float((me.get("stats") or {}).get("muzzle_height", 7.0))
+        self.eye_h = float((me.get("stats") or {}).get("eye_height", 8.0))
+        self.pz_now = float(me["pos"][2])
         for w in (me.get("weapons") or []):
             if w and w.get("kind") == "gun" and ((w.get("reload") or 0) > 0.25 or (w.get("ammo") is not None and w.get("ammo") <= 0)):
                 self.gun_busy = True
@@ -1207,6 +1216,59 @@ class Brain:
                 return (pos[0], pos[1], "drop")
         return None
 
+    def pos_search(self, t, px, py, e, want, sx, sy, visible_threats):
+        """giddygiddyboy-style local fight position: stay or move 6 m in one of 16 directions."""
+        g = self.geo
+        ready = self.has_special or not self.gun_busy
+        wl = 1.0 if ready else -1.0
+        ex, ey, ez = e["pos"]
+        sc = 1.0 + self.size_per_cube * float(e.get("cubes") or 0)
+        tc = (ex, ey, ez + 4.5 * sc)
+        cx0, cy0, cr0 = self.safe_circle
+        others = sorted((o for o in visible_threats if o["id"] != e["id"] and o["dist"] < 170.0),
+                        key=lambda o: o["dist"])[:2]
+        cube = None
+        for cid, (cpos, seen) in self.cubes_mem.items():
+            if t - seen < 0.01 and hyp(cpos[0] - px, cpos[1] - py) < 40.0:
+                if cube is None or hyp(cpos[0] - px, cpos[1] - py) < hyp(cube[0] - px, cube[1] - py):
+                    cube = cpos
+        best, bmv = -1e18, None
+        for k in range(-1, 16):
+            if k >= 0 and self.time_left() < 0.006:
+                break
+            if k < 0:
+                cx, cy, r, dx, dy = px, py, 0.0, 0.0, 0.0
+            else:
+                a = k * PI / 8.0
+                dx, dy, r = math.cos(a), math.sin(a), 6.0
+                cx, cy = px + dx * r, py + dy * r
+                if not g.free(cx, cy) or not g.seg_free(px, py, cx, cy, skip_start=0.5):
+                    continue
+            cz = g.ground(cx, cy) if k >= 0 else self.pz_now
+            dd = hyp(ex - cx, ey - cy)
+            s = -1.1 * abs(dd - want) - 0.4 * r
+            los = g.los(cx, cy, cz + self.muzzle_h, tc[0], tc[1], tc[2], step=1.5, skip_end=2.5 * sc)
+            if los:
+                s += 45.0 * wl
+            body = (cx, cy, cz + 5.4)
+            for o in others:
+                if g.los(o["pos"][0], o["pos"][1], o["pos"][2] + 8.0, body[0], body[1], body[2], step=1.5):
+                    s -= 30.0
+            dz = hyp(cx - cx0, cy - cy0)
+            if dz > cr0 - 6.0:
+                s -= 4.0 * (dz - (cr0 - 6.0))
+            if cube is not None:
+                s += 1.5 * (hyp(cube[0] - px, cube[1] - py) - hyp(cube[0] - cx, cube[1] - cy))
+            if wl > 0:
+                s += 9.0 * (dx * sx + dy * sy)
+            if k < 0:
+                s -= 8.0
+                if wl < 0 and not los:
+                    s += 14.0
+            if s > best:
+                best, bmv = s, (dx, dy)
+        return bmv
+
     def engageable(self, e, px, py, t):
         """giddygiddyboy's practice engage rule: fight mechs that are close, hitting us, closing in,
         weak, or aiming at us; leave the rest alone until they come."""
@@ -1333,6 +1395,13 @@ class Brain:
             radial = clamp((d - want) / 15.0, -1.0, 1.0)
         sx, sy = self.strafe_vec(t, px, py, e)
         ax, ay = unit(e["pos"][0] - px, e["pos"][1] - py)
+        if P["posearch"] and e["los"] and self.geo is not None and self.time_left() > 0.012:
+            want = P["want_d"] if P["want_d"] > 0 else (rmin + rmax) * 0.5
+            if P["want_d"] > 0 and e.get("hp") is not None and float(e["hp"]) < 300.0 and hpf > 0.3:
+                want = min(want, 40.0)
+            mvp = self.pos_search(t, px, py, e, want, sx, sy, visible_threats)
+            if mvp is not None:
+                return mvp, False, "pos%d" % int(d)
         if radial > 0.5:
             dirn = self.nav_to(px, py, e["pos"][0], e["pos"][1])
             mv = (dirn[0] * 0.85 * radial + sx * 0.5, dirn[1] * 0.85 * radial + sy * 0.5)
