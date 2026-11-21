@@ -132,3 +132,10 @@ Round 2 running: A vs D (lurk+end+heal) vs C (heal).
 | Sat 6:23 AM (Mac) | `2d4148f` (s7f) | salt 7 + FFA layer | 5.19 |
 Added knob ffa_fast (2 unexplained pre-shrink deaths latch FFA) for the opening-death problem.
 Draws ready: s8f `c2d3038`, s9f `6e55960`, s10f `c7d43a9`, s11f `99206b4`.
+
+### FFA live round 2 (8 each)
+- A layer: 1,4,9,1,2,1,6,1 → 12.9
+- D layer+lurk+end+heal: 1,4,5,2,1,2,4,3 → **13.25** (never worse than 5th)
+- C layer+heal: 1,11,1,5,3,1,9,3 → 11.75
+Pooled so far: A 11.4 (28), C 11.7 (16), B 10.75 (8), D 13.25 (8).
+Round 3 running: D vs D+ffa_fast vs A.
