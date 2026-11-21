@@ -290,3 +290,4 @@ gg3s8 5.17 → Go draws mean 5.65 over 9. gg3s9 submitted.
 FIXED-SIM FFA vs 15 Go clones: Go base 7.61 (64 m, sanity OK); our Python ours+FFA 3.83 (18 m) → Go is far stronger in FFA; Python line dropped for the final. Codex finishing 4 Go FFA variants (lurk/vulture/endgame/all).
 gg3s9 5.40; gg3s10 scoring.
 Codex Go FFA variants built (FFA-only, practice guarded): gf-v1-lurk `72c8214`, gf-v2-vulture `9971071`, gf-v3-endgame `a37c41a`, gf-v4-all `42aec54` (notes dev/GO_FFA_NOTES.md). Testing vs 15 clones, 64 m each (baseline Go 7.61).
+gg3s10 5.40; gg3s11 submitted. FFA partial: lurk 7.56 (25 m) ≈ base 7.61; endgame 6.92 (24 m); ng 3.93; Python final 5.80 (64 m).
