@@ -25,7 +25,22 @@ P = {
     "chase": True,        # push toward a target we cannot see when healthy
     "retreat_hp": 0.38,   # break line of sight below this HP fraction
     "laser_band": (50.0, 120.0),
+    "gun_band": (45.0, 110.0),
+    "lit_band": (0.0, 32.0),
+    "regen": False,       # after a fight, hold still in cover until regen_hp
+    "regen_hp": 0.85,
+    "w_laser": 5.0,
+    "w_lightning": 4.0,
+    "strafe": (0.3, 0.95),  # seconds between strafe flips
+    "tol": 0.75,          # fire when predicted miss < tol * target radius
 }
+# offline tuning only: the simulator may override knobs through MF_P (never set in matches)
+if os.environ.get("MF_P"):
+    try:
+        for _k, _v in json.loads(os.environ["MF_P"]).items():
+            P[_k] = tuple(_v) if isinstance(_v, list) else _v
+    except Exception:
+        pass
 
 try:
     import geo as geomod
@@ -69,7 +84,7 @@ def unit(x, y):
 
 # weapon preference for the two slots: never drop the gun; laser > lightning (the organizers' strongest
 # house bots win with gun + laser); mortar invites laser cook-off and self-splash: never taken
-W_VAL = {"gun": 9.0, "laser": 5.0, "lightning": 4.0, "mortar": 0.0}
+W_VAL = {"gun": 9.0, "laser": P["w_laser"], "lightning": P["w_lightning"], "mortar": 0.0}
 
 UPGRADE_RANK = [
     "plating", "gun_damage", "armor", "gun_mag", "gun_rate", "nanites", "laser_damage",
@@ -91,6 +106,12 @@ def lead_vel(v, pv, T):
     else:
         a, b = 1.37, -0.56
     return a * v[0] + b * pv[0], a * v[1] + b * pv[1]
+
+
+def in_safe_zone(brain, obs, px, py, t):
+    """True when we can afford to sit still for ~20 s here without the zone reaching us."""
+    cx, cy, cr = Brain.zone_at(obs.get("zone") or {}, t + 20.0)
+    return hyp(px - cx, py - cy) < cr - 10.0
 
 
 class Brain:
@@ -528,7 +549,7 @@ class Brain:
             # error left after one sim tick of slewing
             ye1 = max(0.0, yaw_err - turn_rate * 0.05)
             pe1 = max(0.0, pit_err - pitch_rate * 0.05)
-            tol_y = math.atan2(rad * 0.75, max(hd, 1.0))
+            tol_y = math.atan2(rad * P["tol"], max(hd, 1.0))
             tol_p = math.atan2(2.5 if kind == "mech" else 0.8, max(hd, 1.0))
             aligned = ye1 <= tol_y and pe1 <= tol_p
             aligned_now = yaw_err <= tol_y and pit_err <= tol_p
@@ -941,7 +962,7 @@ class Brain:
         if t >= self.strafe_until:
             if self.rng.random() < 0.7:
                 self.strafe = -self.strafe
-            self.strafe_until = t + self.rng.uniform(0.3, 0.95)
+            self.strafe_until = t + self.rng.uniform(P["strafe"][0], P["strafe"][1])
         ax, ay = unit(e["pos"][0] - px, e["pos"][1] - py)
         sx, sy = -ay * self.strafe, ax * self.strafe
         if self.geo is not None and not self.geo.seg_free(px, py, px + sx * 6.0, py + sy * 6.0, skip_start=2.0):
@@ -959,13 +980,13 @@ class Brain:
         if has_laser:
             rmin, rmax = P["laser_band"]
         elif has_lit:
-            rmin, rmax = 0.0, 32.0
+            rmin, rmax = P["lit_band"]
         else:
-            rmin, rmax = 45.0, 110.0
+            rmin, rmax = P["gun_band"]
         if has_lit:
             ehp = (e.get("hp") or 1400) / max(1.0, e.get("max_hp") or 1400)
             if ("laser" in ew and "lightning" not in ew) or (ehp < 0.5 and hpf > 0.5 and energy > 30):
-                rmin, rmax = 0.0, 32.0
+                rmin, rmax = P["lit_band"]
         if "lightning" in ew and not has_lit:
             rmin = max(rmin, 60.0)
             rmax = max(rmax, rmin + 40.0)
@@ -1064,6 +1085,18 @@ class Brain:
     def wander(self, obs, me, t, px, py, pz, hpf, energy, kinds, threats, zx, zy, zr, lx, ly, lr,
                nx_, ny_, nr, ss, farm):
         """Loot, then hold a covered spot inside the next zone."""
+        # regen discipline: hurt and recently in a fight -> stand still somewhere hidden until healed
+        # (regen needs 5 s without damage dealt/taken; standing still is also silent)
+        if P["regen"] and hpf < P["regen_hp"] and t - max(self.last_hurt, self.last_hit_dealt) < 40.0 and in_safe_zone(self, obs, px, py, t):
+            recent = [e for e in self.enemies.values() if t - e["seen"] < 15.0]
+            if recent:
+                if self.cover_goal is None or t - self.cover_t > 3.0:
+                    c = self.find_cover(px, py, recent, lx, ly, lr)
+                    self.cover_t = t
+                    self.cover_goal = c
+                if self.cover_goal is not None and hyp(self.cover_goal[0] - px, self.cover_goal[1] - py) > 1.5:
+                    return self.nav_to(px, py, self.cover_goal[0], self.cover_goal[1]), False, "regen-go"
+            return (0.0, 0.0), False, "regen"
         goals = []
         # time we have before we must head for the next circle
         dn = hyp(px - nx_, py - ny_)
