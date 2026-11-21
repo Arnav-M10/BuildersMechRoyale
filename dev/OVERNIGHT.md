@@ -261,6 +261,9 @@ Go bot 5.67 < the 6.19 the copy-teams get → our snapshot (latest, with LootRad
 | Sat 3:04 PM (Mac) | `3ec3a38` (go-giddy3) | Go bot, giddy3 snapshot (~11 AM) | **6.17** → PICKED (BB-F0805900) |
 Queued: go-giddy2 `a7ee4ca` (~9 AM snapshot), glu67 `e703baf`, glu68 `d196399`.
 Board 3:05 PM: line 5.98 (32nd BackwardsDeployeds); 6.17 puts us ~top 25.
-| Sat 3:11 PM (Mac) | `a7ee4ca` (go-giddy2) | Go bot, giddy2 snapshot (~9 AM) | scoring… |
+| Sat 3:11 PM (Mac) | `a7ee4ca` (go-giddy2) | Go bot, giddy2 snapshot (~9 AM) | 5.25 |
 Submissions now 6/hour.
 STRATEGY FOR #1: the final is 64 FFA matches among the top 16, ~11 of which run identical giddy code. Codex building an FFA sim with REAL config + external opponents (15 containers of the giddy Go bot) so we can tune an anti-giddy FFA bot. Live FFA check of the Go bot running.
+| Sat 3:17 PM (Mac) | `886b42a` (gg3s1) | go-giddy3 + RNG salt 1 | scoring… |
+Snapshot diffs: giddy2→giddy3 (5.25→6.17) = FightBoost removed, LethalK .7, HPw .1→.21. giddy3→giddy4 (6.17→5.67) = ONLY HPw .21→.18 and LootRadius 150→120. → Params matter a lot; trend says higher HPw / wider loot.
+Queue (Go, all from go-giddy3): gp-hpw25 `b9e44f2`, gp-hpw30 `ba7cd5c`, gp-loot180 `5a7b5f1`, gp-lk60 `94ac400`, gp-hpw25-loot180 `83e7442`; salts gg3s2..8.
