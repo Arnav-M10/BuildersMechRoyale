@@ -236,7 +236,10 @@ gfc (gn + frontarc + cube_guard) 2 draws 5.19/5.27 (mean 5.23) — best mean so 
 Repo scan: 190 repos / 156 READMEs in scratchpad/scan2. JishnuMadav/mech-royale (MIT, 5.85 official) lists its real experiments: supply-drop capture 5.10→5.46, laser charge-rounding fix →5.73, lethal partial release →5.81, critical-HP cover <25%→60% + no laser charging outside zone →5.85.
 NEW g_drops (supply drops = full HP + energy + 3 cubes; the giddy squad core ignored them): gdr60 `48eafe4`, gdr61 `e4c761b` = gfc + drops 400.
 Codex dispatched: mine all READMEs + g_dropheal / g_zonelaser / g_chargefix.
-| Sat 1:56 PM (Mac) | `48eafe4` (gdr60) | gfc + supply drops | scoring… |
+| Sat 1:56 PM (Mac) | `48eafe4` (gdr60) | gfc + supply drops | 5.10 |
 KEY INSIGHT: track page says house bots "never fight each other, and hunt you weakest first (one early, more as you thin them out, all of them late)" → practice score ≈ kills before we die. Goal 7+ = ~7 kills/life.
 Codex drastic patch merged: g_dropheal, g_zonelaser, g_chargefix, g_critical_recovery (dev/IDEAS_OTHERS.md). Draws gx62 `6ce64af`, gx63 `94350b3` = gfc + drops + all four (docker PASS).
 Codex dispatched: kill-rate levers (g_hunt_early, g_dmg_up, g_focus, g_late_hold).
+| Sat 2:04 PM (Mac) | `6ce64af` (gx62) | gfc + drops + dropheal/zonelaser/chargefix/critical | scoring… |
+Label tap (sim, gx config, 4 matches): drop capture works (105 'loot:drop-hold' decisions) but 858 'idle' decisions: the giddy core stands still when there's no target/loot.
+User: use the sim + 14 cores, fan noise OK. Calibration running (/tmp/frozen_calib_1406): 8 configs × 64 matches, to compare sim ranking with ~40 real draws.
