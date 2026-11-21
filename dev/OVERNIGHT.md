@@ -206,5 +206,6 @@ Codex dispatched: giddy fidelity audit (port 5.06 vs original 6.00).
 giddy v2 2 draws 4.65/5.21 (mean 4.93) < v1 mean 5.06 → keep v1 params.
 Codex audit applied (dev/GIDDY_AUDIT.md): g_nav (path follower + isolated-region escape), g_cover (reachable BFS cover), g_stuck (faster unstick); default off. Draws: gn43 `0fc0e1c`, gn44 `69b98f5` (v1 + all three; docker PASS).
 | Sat 11:32 AM (Mac) | `0fc0e1c` (gn43) | giddy v1 + nav/cover/stuck + salt 43 + FFA pkg | 5.10 |
-| Sat 11:55 AM (Mac) | `69b98f5` (gn44) | giddy v1 + nav/cover/stuck + salt 44 + FFA pkg | scoring… |
+| Sat 11:55 AM (Mac) | `69b98f5` (gn44) | giddy v1 + nav/cover/stuck + salt 44 + FFA pkg | 5.21 |
 ### FFA live: gn (nav/cover/stuck, 16): 12,1,1,1,2,8,1,1,2,2,3,1,1,1,2,4 → 13.3; giddy v1 (8): 1,3,1,1,2,1,1,1 → 14.6. No errors; both strong (giddy core pooled FFA ≈12.8 over 40). Safe.
+gn (giddy v1 + nav/cover/stuck) 2 draws mean 5.16 — best strategy so far. More gn draws built.
