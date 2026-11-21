@@ -1,0 +1,4 @@
+dev
+.git
+cache.pkl
+__pycache__
