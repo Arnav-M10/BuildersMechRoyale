@@ -11,3 +11,4 @@ Ideas were also read (not copied) from other public MIT-licensed Mech Royale rep
 This branch's root Dockerfile builds the Go bot in `mech/` + `cmd/bot/`. The `mech/` package is
 giddygiddyboy-mech-royale's code (MIT, by justnau), unmodified; `cmd/bot/main.go` is our own
 stdin/stdout wrapper. See LICENSE-giddygiddyboy.
+(Branch exp/go-giddy3 uses the ~11 AM 2026-11-21 snapshot of the same MIT package.)
