@@ -117,9 +117,15 @@ Directional +1.1; never affects practice (s2f = 5.29 exactly).
 Picked **s2f (BB-F1AB9EAF, `87a0559`, 5.29, FFA layer on)** as the final entry (manual pick). A manual pick STICKS: if a later draw scores higher, it must be re-picked explicitly on the page.
 | Sat 5:56 AM (Mac) | `5118cbd` (s5f) | salt 5 + FFA layer | 4.73 |
 Codex FFA strategist round dispatched (opening lurk, FFA retreat, vulture, laser LOS, endgame HP race).
-| Sat 6:03 AM (Mac) | `04acbfc` (s6f) | salt 6 + FFA layer | scoring… |
+| Sat 6:03 AM (Mac) | `04acbfc` (s6f) | salt 6 + FFA layer | 4.77 |
 Salt draws so far (same strategy): 5.10, 4.75, 5.29, 4.79, 4.73 → mean ≈ 4.93, σ ≈ 0.24; our 5.29 is a +1.5σ draw.
 
 ## Codex FFA round → knobs ffa_lurk (opening: only attackers / <25 m until t=75 s or ≤9 alive), ffa_end (≤4 alive: only attackers or weak close mechs; hold 0.3·r when r ≤ 70), ffa_heal (FFA-only retreat-and-heal with 75% resume).
 Live 3-arm test running (8 matches each): A = layer, B = layer + lurk + end, C = layer + heal.
 Note: first match in all 3 arms died at ~16 s (place 15-16) before the FFA detector latched; the berserk core fights everything until latch. Candidate fix later: faster/earlier FFA evidence.
+
+### FFA live round 1 (8 matches each)
+- A layer only: 16,8,3,4,3,9,2,7 → 9.5
+- B + lurk + end: 16,1,1,1,9,12,1,1 → 10.8 (5 wins)
+- C + heal: 15,1,3,1,4,8,1,2 → 11.6
+Round 2 running: A vs D (lurk+end+heal) vs C (heal).
