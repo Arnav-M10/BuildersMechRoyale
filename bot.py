@@ -54,7 +54,7 @@ P = {
     "precharge": False,   # start a laser charge on a target within 60 m even without line of sight
     "wdist": False,       # with want_d: lightning 30 m, laser want_d, gun-only 70 m; >=70 m if outnumbered or vs lightning
     "upg": "default",     # upgrade order: "default", "econ" (TTUN), "inv" (Team Inventors)
-    "want_laser": 0.0,    # >0: hold this distance instead of want_d while carrying a laser
+    "want_laser": 145.0,    # >0: hold this distance instead of want_d while carrying a laser
 }
 # offline tuning only: the simulator may override knobs through MF_P (never set in matches)
 if os.environ.get("MF_P"):
