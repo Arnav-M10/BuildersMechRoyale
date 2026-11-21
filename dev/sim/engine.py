@@ -1808,6 +1808,11 @@ class Match:
 
         nz=self._walk_surface(nx,ny,oldz)
         a.pos[0]=nx;a.pos[1]=ny
+        # Walls absorb momentum: report the velocity actually achieved, not the commanded
+        # one (a blocked mech otherwise reports ~11 m/s forever and velocity-based stuck
+        # detectors, e.g. the Go bots', never fire).
+        if dt>0:
+            a.vel[0]=(nx-oldx)/dt;a.vel[1]=(ny-oldy)/dt
         if a.grounded and nz is not None and nz>=oldz-step-0.2:
             a.pos[2]=nz;a.vel[2]=max(0.0,a.vel[2]);a.grounded=True
         else:
