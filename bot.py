@@ -65,6 +65,7 @@ P = {
     "ffa_lurk": False,    # FFA opening (t<75 s and >9 alive): fight only attackers or mechs within 25 m
     "ffa_end": False,     # FFA endgame (<=4 alive): only attackers or weak close mechs; hold 0.3*r when r<=70
     "ffa_heal": False,    # FFA only: disengage when ganged/losing the race, heal in cover, resume at 75% HP
+    "ffa_fast": False,    # latch FFA on 2 (not 3) unexplained deaths before the first zone shrink
     "salt": 0,            # mixed into the RNG seed (strafe timing etc.); the strategy itself is unchanged
 }
 # offline tuning only: the simulator may override knobs through MF_P (never set in matches)
@@ -454,7 +455,7 @@ class Brain:
         # The aggregate death count has no cause attribution. Trust it only before the
         # first zone shrink, when ring casualties cannot explain the gap. Crossfire beams
         # remain a high-confidence signal throughout the match.
-        if t < self.first_zone_shrink and 16 - alive - self.my_kills >= 3:
+        if t < self.first_zone_shrink and 16 - alive - self.my_kills >= (2 if P["ffa_fast"] else 3):
             self.ffa = True
             log("FFA latched from unexplained deaths at t=%.1f" % t)
             return
