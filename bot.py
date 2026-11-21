@@ -708,7 +708,7 @@ class Brain:
             if t - self.attacked_by.get(n["id"], -99) < 4.0 or d < 40.0:
                 if npc_target is None or d < npc_target["dist"]:
                     npc_target = n
-        if ffa_active and target is None:
+        if ffa_active and target is None and not P["ffa_econ"]:
             npc_target = None
 
         ffa_face_yaw = None
@@ -729,7 +729,7 @@ class Brain:
         elif npc_target is not None:
             shoot = npc_target
         farm = None
-        if shoot is None and not threats and not ffa_active:
+        if shoot is None and not threats and (not ffa_active or P["ffa_econ"]):
             farm = self.pick_farm(px, py, pz, muzzle, hpf, zx, zy, zr)
             if farm is not None:
                 shoot = farm
