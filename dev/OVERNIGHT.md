@@ -165,3 +165,5 @@ Final config pooled: 12.2 pts/match over 16 live matches.
 Live smoke test of s2G running (16 matches, rooms 2 and 5).
 Fixed-code draws (use these, not s14F-s17F): see exp/s18G..s23G branches.
 s2G live smoke (16 matches, no errors): 1,2,2,4,1,10,4,15,2,5,1,2,8,3,2,5 → 11.8 pts/match (consistent with 12.2). Pick stands.
+| Sat 8:13 AM (Mac) | `a368d6c` (s18G) | salt 18 + full FFA package (fixed) | scoring… |
+Live test running: ffa_econ (FFA-only farming; 16 matches) vs final config (8).
