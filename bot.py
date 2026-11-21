@@ -53,7 +53,7 @@ P = {
     "gtol": False,        # gun fires on its own lead solution with TTUN tolerance 1.2*atan(2.2*scale/d)
     "precharge": False,   # start a laser charge on a target within 60 m even without line of sight
     "wdist": False,       # with want_d: lightning 30 m, laser want_d, gun-only 70 m; >=70 m if outnumbered or vs lightning
-    "upg": "default",     # upgrade order: "default", "econ" (TTUN), "inv" (Team Inventors)
+    "upg": "inv",         # upgrade order: "default", "econ" (TTUN), "inv" (Team Inventors)
 }
 # offline tuning only: the simulator may override knobs through MF_P (never set in matches)
 if os.environ.get("MF_P"):
