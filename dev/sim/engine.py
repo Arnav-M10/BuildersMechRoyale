@@ -617,20 +617,49 @@ class Match:
                         outgoing[aid] = self.observation(aid)
             self.mark_observed()
             deadline = time.monotonic() + budget
+            sent_ids = set()
+            received = {}
             for aid, obs in outgoing.items():
-                if not active[aid].send(obs):
+                proc = active[aid]
+                send_async = getattr(proc, "send_async", None)
+                status = send_async(obs) if send_async else proc.send(obs)
+                if status is True:
+                    sent_ids.add(aid)
+                elif status is None:
+                    proc.missed += 1
+                    received[aid] = None
+                else:
                     self.actors[aid]._crashed = True
+            pending = {aid for aid in sent_ids if not getattr(self.actors[aid], "_crashed", False)}
+            while pending and time.monotonic() < deadline:
+                progressed = False
+                for aid in list(pending):
+                    proc = active[aid]
+                    done, action = proc.receive_available(self.tick)
+                    if done:
+                        received[aid] = action
+                        pending.remove(aid)
+                        progressed = True
+                if not progressed:
+                    time.sleep(min(0.0005, max(0.0, deadline - time.monotonic())))
+            for aid in pending:
+                active[aid].missed += 1
+                received[aid] = None
             for aid, a in self.actors.items():
                 if a.kind != "mech":
                     continue
                 if a.alive:
                     proc = active.get(aid)
-                    if proc and not getattr(proc, "closed", False):
-                        action = proc.receive(self.tick, deadline)
+                    if proc:
                         if getattr(proc, "closed", False):
                             a._crashed = True
+                        action = received.get(aid)
                     else:
-                        action = None
+                        if aid == 0:
+                            action = None
+                        else:
+                            actions[aid] = self.house_action(a, None, ffa_mode=True)
+                            continue
                     actions[aid] = self._accept_action(a, action)
         else:
             a = self.actors[0]
@@ -813,18 +842,24 @@ class Match:
                        key=lambda i: (priority.get(choices[i].get("id"), 50), i))
         return selected
 
-    def house_action(self, a, subject):
+    def house_action(self, a, subject, ffa_mode=False):
         tier = a.house_tier
         if self.t + 1e-8 < a.house_next_act:
             return a.house_action
         reaction = {1: 0.5, 2: 0.25, 3: 0.15, 4: 0.1}[tier]
         a.house_next_act = self.t + reaction
 
-        hunters = self._house_hunters(subject) if subject and subject.alive else set()
-        recently_attacked = (subject is not None and subject.alive and
-                             a.last_damage_by == subject.id and self.t - a.last_damage_at < 8.0)
-        squad_hunter = a.id in hunters
-        target = subject if (squad_hunter or recently_attacked) else None
+        if ffa_mode:
+            attacker = self.actors.get(a.last_damage_by) if a.last_damage_by is not None else None
+            recently_attacked = (attacker is not None and attacker.alive and attacker.id != a.id and
+                                 self.t - a.last_damage_at < 8.0)
+            target = attacker if recently_attacked else None
+        else:
+            hunters = self._house_hunters(subject) if subject and subject.alive else set()
+            recently_attacked = (subject is not None and subject.alive and
+                                 a.last_damage_by == subject.id and self.t - a.last_damage_at < 8.0)
+            squad_hunter = a.id in hunters
+            target = subject if (squad_hunter or recently_attacked) else None
         if target is None:
             npc_ids = {x.id for x in self.actors.values() if x.kind == "npc" and x.alive}
             npc_attacker = self.actors.get(a.last_damage_by) if a.last_damage_by in npc_ids else None
@@ -901,9 +936,8 @@ class Match:
                 elif not a.house_roof_arrived:
                     move = list(unit(gx - a.pos[0], gy - a.pos[1]))
         else:
-            # FFA-style roaming and looting. House bots never select another
-            # house as a combat target; only an attack by the contestant makes
-            # a non-hunter retaliate.
+            # FFA-style roaming and looting. An FFA house bot only retaliates
+            # against its own recent attacker; it does not join a squad target.
             weapon_goal = self._house_weapon_goal(a, tier)
             cube_goal = None
             cube_dist = 1e9
