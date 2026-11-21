@@ -55,7 +55,7 @@ P = {
     "wdist": False,       # with want_d: lightning 30 m, laser want_d, gun-only 70 m; >=70 m if outnumbered or vs lightning
     "upg": "default",     # upgrade order: "default", "econ" (TTUN), "inv" (Team Inventors)
     "want_laser": 0.0,    # >0: hold this distance instead of want_d while carrying a laser
-    "selfcomp": False,    # aim from where our muzzle will be (own velocity x 0.075 s); travel from the 3 m spawn point
+    "selfcomp": True,     # aim from where our muzzle will be (own velocity x 0.075 s); travel from the 3 m spawn point
     "duck": False,        # gun-only and reloading: step to a spot within ~12 m out of the target's sight
 }
 # offline tuning only: the simulator may override knobs through MF_P (never set in matches)
