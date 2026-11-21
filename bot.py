@@ -58,7 +58,7 @@ P = {
     "selfcomp": False,    # aim from where our muzzle will be (own velocity x 0.075 s); travel from the 3 m spawn point
     "duck": False,        # gun-only and reloading: step to a spot within ~12 m out of the target's sight
     "select": False,      # engage only close/attacking/approaching/weak/aiming mechs, or late (giddygiddyboy rules)
-    "posearch": False,    # fight movement = best of stay + 16 spots 6 m away (range, LOS when ready, crossfire, zone, cubes)
+    "posearch": True,     # fight movement = best of stay + 16 spots 6 m away (range, LOS when ready, crossfire, zone, cubes)
 }
 # offline tuning only: the simulator may override knobs through MF_P (never set in matches)
 if os.environ.get("MF_P"):
