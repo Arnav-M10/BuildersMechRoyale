@@ -44,6 +44,10 @@ P = {
     "race_margin": 0.8,   # leave when ttd < ttk * margin
     "race_ttd": 6.0,      # ...and ttd below this many seconds
     "cover_max": 35.0,    # race mode: only dash to cover this close; else fight while strafing
+    "berserk": False,     # never retreat from a fight (practice hunters share vision; running loses)
+    "want_d": 0.0,        # >0: hold this fight distance (smooth radial), instead of weapon bands
+    "tsel": False,        # target = lowest hp * (1 + dist/120) among visible
+    "fightloot": False,   # mid-fight: scoop cubes <30 m, fetch a better weapon <200 m, take drops
 }
 # offline tuning only: the simulator may override knobs through MF_P (never set in matches)
 if os.environ.get("MF_P"):
@@ -474,6 +478,8 @@ class Brain:
             emax = e.get("max_hp") or 1400.0
             s = d
             s -= (1.0 - ehp / emax) * 90.0
+            if P["tsel"]:
+                s = float(ehp) * (1.0 + d / 120.0) + (0.0 if e["los"] else 1e6)
             if t - self.attacked_by.get(e["id"], -99) < 3.0:
                 s -= 50.0
             if not e["los"]:
@@ -877,7 +883,9 @@ class Brain:
             zone_push = self.snap_goal(gx, gy, lx, ly, lr)
 
         hp_low = hpf < P["retreat_hp"]
-        if P["race"]:
+        if P["berserk"]:
+            hp_low = False
+        if P["race"] and not P["berserk"]:
             hp_now = float(me.get("hp", 1.0))
             rate_in = sum(a for _, a in self.dmg_in) / 2.5
             rate_out = max(40.0, sum(a for _, a in self.dmg_out) / 3.0)
@@ -931,6 +939,14 @@ class Brain:
             if visible_threats and self.cover_goal is not None and label == "hide":
                 # still seen at the cover spot: look again
                 self.cover_t = -99
+        elif fight and P["fightloot"] and self.fight_loot(obs, t, px, py, pz, hpf, kinds, target) is not None:
+            gx, gy, why = self.fight_loot(obs, t, px, py, pz, hpf, kinds, target)
+            mv = self.nav_to(px, py, gx, gy)
+            if hyp(gx - px, gy - py) > 12.0 and target is not None:
+                sx, sy = self.strafe_vec(t, px, py, target)  # weave so we are not a straight-line target
+                mv = (mv[0] + sx * 0.5, mv[1] + sy * 0.5)
+            boost = why == "drop" and energy > 40
+            label = "fl-" + why
         elif fight:
             mv, boost, label = self.fight_move(t, px, py, kinds, target, hpf, energy, visible_threats, walk)
         else:
@@ -1043,6 +1059,43 @@ class Brain:
             best = (perp[0] * self.juke_dir, perp[1] * self.juke_dir)
         return best
 
+    def fight_loot(self, obs, t, px, py, pz, hpf, kinds, target):
+        """A cube within 30 m, a better weapon within 200 m, or a supply drop worth taking now."""
+        cx, cy, cr = self.safe_circle
+        if hpf > 0.3:
+            best, bd = None, 30.0
+            for cid, (pos, seen) in self.cubes_mem.items():
+                d = hyp(pos[0] - px, pos[1] - py)
+                if d < bd and abs(pos[2] - pz) < 4.0 and hyp(pos[0] - cx, pos[1] - cy) < cr - 3.0:
+                    best, bd = (pos[0], pos[1], "cube"), d
+            if best is not None:
+                return best
+        best, bd = None, 200.0
+        for pid, (kind, pos, seen) in self.pickups.items():
+            if self.take_block.get(pid, -1) > t or self.pickup_gain(kind, kinds, False) is None:
+                continue
+            if pos[2] - self.ground(pos[0], pos[1]) > 2.5 or not self.reachable(pos[0], pos[1]):
+                continue
+            d = hyp(pos[0] - px, pos[1] - py)
+            if d < bd and hyp(pos[0] - cx, pos[1] - cy) < cr - 3.0:
+                best, bd = (pos[0], pos[1], "arm"), d
+        if best is not None:
+            return best
+        for dr in obs.get("drops") or []:
+            pos = dr.get("pos")
+            if not pos:
+                continue
+            d = hyp(pos[0] - px, pos[1] - py)
+            holder = dr.get("holder")
+            if holder not in (None, self.my_id) and float(dr.get("progress") or 0) > 1.5 and d > 30:
+                continue
+            if d < 150.0 and d / 11.7 < float(dr.get("lands_in") or 0) + 20.0 and hyp(pos[0] - cx, pos[1] - cy) < cr - 3.0:
+                ring = float(dr.get("radius") or 8.0)
+                if d < ring - 2.0:
+                    return (pos[0] + ring * 0.45 * math.cos(t * 1.3), pos[1] + ring * 0.45 * math.sin(t * 1.3), "drop")
+                return (pos[0], pos[1], "drop")
+        return None
+
     def strafe_vec(self, t, px, py, e):
         if t >= self.strafe_until:
             if self.rng.random() < 0.7:
@@ -1100,11 +1153,19 @@ class Brain:
             radial = 1.0
         elif d < rmin:
             radial = -1.0
+        if P["want_d"] > 0:
+            want = P["want_d"]
+            ehp_abs = e.get("hp")
+            if ehp_abs is not None and float(ehp_abs) < 300.0 and hpf > 0.3:
+                want = min(want, 40.0)  # finish it
+            radial = clamp((d - want) / 15.0, -1.0, 1.0)
         sx, sy = self.strafe_vec(t, px, py, e)
         ax, ay = unit(e["pos"][0] - px, e["pos"][1] - py)
-        if radial > 0:
+        if radial > 0.5:
             dirn = self.nav_to(px, py, e["pos"][0], e["pos"][1])
-            mv = (dirn[0] * 0.85 + sx * 0.5, dirn[1] * 0.85 + sy * 0.5)
+            mv = (dirn[0] * 0.85 * radial + sx * 0.5, dirn[1] * 0.85 * radial + sy * 0.5)
+        elif radial > 0:
+            mv = (ax * radial * 0.8 + sx, ay * radial * 0.8 + sy)
         else:
             mv = (ax * radial * 0.8 + sx, ay * radial * 0.8 + sy)
         boost = energy > 55 and d > 60 and not has_lit
