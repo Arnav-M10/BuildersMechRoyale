@@ -78,3 +78,4 @@ Pattern: giddygiddyboy's pieces (select, its tolerance via gtol) don't transplan
 ## Max mode (from 4:30 AM Mac)
 - Calibration sweep (12 workers, seeds 15000×96): every variant already scored for real, plus duck/killloot/precharge/juke, to measure sim-vs-real agreement.
 - Codex resumed on the FFA layer.
+| Sat 4:31 AM (Mac) | `e4d06d0` (exp/v15) | v6 + duck out of sight while the gun reloads | scoring… |
