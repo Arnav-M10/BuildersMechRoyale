@@ -140,4 +140,13 @@ Draws ready: s8f `c2d3038`, s9f `6e55960`, s10f `c7d43a9`, s11f `99206b4`.
 Pooled so far: A 11.4 (28), C 11.7 (16), B 10.75 (8), D 13.25 (8).
 Round 3 running: D vs D+ffa_fast vs A.
 | Sat 6:42 AM (Mac) | `c2d3038` (s8f) | salt 8 + FFA layer | 4.83 |
-| Sat 6:57 AM (Mac) | `6e55960` (s9f) | salt 9 + FFA layer | scoring… |
+| Sat 6:57 AM (Mac) | `6e55960` (s9f) | salt 9 + FFA layer | 4.88 |
+
+### FFA live round 3 (8 each)
+- D (lurk+end+heal): 2,2,1,14,6,6,9,9 → 9.9
+- **DF (D + ffa_fast): 2,3,1,5,3,1,10,1 → 12.75**
+- A layer: 1,1,8,1,16,12,7,1 → 10.1
+Pooled: A 11.1 (36), C 11.7 (16), D 11.6 (16), DF 12.75 (8), B 10.75 (8).
+**Decision: final FFA config = full package (detect/engage/hold/lurk/end/heal/fast).**
+Full-package draws built: s12F `42cfde3`, s13F `5e5b798`, s14F `bedf199`, s15F `84eb891`, s16F `458f615`, s17F `7c131ce` (s12F docker-checked).
+| Sat 7:03 AM (Mac) | `be1e9e1` (s2F) | salt 2 + FULL FFA package: expect exactly 5.29, then re-pick it as the final entry | scoring… |
