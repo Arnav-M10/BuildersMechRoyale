@@ -244,3 +244,6 @@ Codex dispatched: kill-rate levers (g_hunt_early, g_dmg_up, g_focus, g_late_hold
 Label tap (sim, gx config, 4 matches): drop capture works (105 'loot:drop-hold' decisions) but 858 'idle' decisions: the giddy core stands still when there's no target/loot.
 User: use the sim + 14 cores, fan noise OK. Calibration running (/tmp/frozen_calib_1406): 8 configs × 64 matches, to compare sim ranking with ~40 real draws.
 Transplants from JishnuMadav onto the giddy core: drops 5.10, full set 4.92 vs gfc 5.23 → not helping (as their README warns).
+| Sat 2:23 PM (Mac) | `4f60b2d` (gk64) | gfc + hunt_early + focus + killloot | scoring… |
+Codex kill levers merged (dev/KILLS.md). Codex dispatched: RADICAL environmental kills (lure hunters into NPC drones, zone traps, choke ambush).
+Calibration (sim 64 matches vs real mean): ours 6.11/4.93, gs 6.41/4.96, gd 7.17/5.06, gn 7.27/5.15 → same ordering (sim gaps ~5x real).
