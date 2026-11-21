@@ -8,6 +8,11 @@ import (
 
 const lat = 0.075
 
+// FFA switches are evaluated only after the practice classifier opts out.
+const (
+	ffaVultureMode = true
+)
+
 type Track struct {
 	MechSeen
 	Seen    float64
@@ -96,6 +101,7 @@ type Brain struct {
 	otherDead          int
 	stickID            int
 	stickAt, loseAt    float64
+	ffaHP, ffaHPAt, ffaOwnHitAt, ffaOtherHitAt map[int]float64
 }
 
 type Params struct {
@@ -174,6 +180,8 @@ func NewBrain(h *Hello, w *World) *Brain {
 		tracks: map[int]*Track{}, npcs: map[int]*Track{}, crates: map[int]*known{}, cubes: map[int]*known{},
 		pickups: map[int]*known{}, bad: map[int]float64{}, strafe: 1, lootID: -1, lastHurt: -100, lastThreatAt: -100,
 		holdStart: -1,
+		ffaHP: map[int]float64{}, ffaHPAt: map[int]float64{},
+		ffaOwnHitAt: map[int]float64{}, ffaOtherHitAt: map[int]float64{},
 	}
 }
 
@@ -250,6 +258,16 @@ func (b *Brain) observe(o *Obs) {
 		}
 		t.MechSeen = *m
 		t.Seen = now
+		if ffaVultureMode && b.baseSet && b.ffaOnly() && m.Kind == "mech" && m.ID != me.ID &&
+			hyp(m.Pos[0]-o.Zone.Center[0], m.Pos[1]-o.Zone.Center[1]) <= o.Zone.Radius {
+			if hp, ok := b.ffaHP[m.ID]; ok && now-b.ffaHPAt[m.ID] <= 0.8 && m.HP < hp-1 {
+				ownHit, ownHitSeen := b.ffaOwnHitAt[m.ID]
+				if !ownHitSeen || now-ownHit > 0.25 {
+					b.ffaOtherHitAt[m.ID] = now
+				}
+			}
+			b.ffaHP[m.ID], b.ffaHPAt[m.ID] = m.HP, now
+		}
 		dx, dy := m.Pos[0]-me.Pos[0], m.Pos[1]-me.Pos[1]
 		t.Dist = hyp(dx, dy)
 		c := b.center(t)
@@ -314,9 +332,19 @@ func (b *Brain) observe(o *Obs) {
 					n.HitMe = now
 				}
 			}
+		case "hit":
+			if ffaVultureMode && b.baseSet && b.ffaOnly() {
+				b.ffaOwnHitAt[e.Target] = now
+			}
 		case "kill":
 			b.kills++
 			delete(b.tracks, e.Target)
+			if ffaVultureMode && b.ffaOnly() {
+				delete(b.ffaHP, e.Target)
+				delete(b.ffaHPAt, e.Target)
+				delete(b.ffaOwnHitAt, e.Target)
+				delete(b.ffaOtherHitAt, e.Target)
+			}
 		}
 	}
 
@@ -356,6 +384,32 @@ func (b *Brain) observe(o *Obs) {
 	} else if now <= z.ShrinkStart {
 		b.hold = circle{z.Center[0], z.Center[1], z.Radius}
 	}
+}
+
+
+// ffaOnly excludes practice during the classifier warmup and while squad mode is active.
+func (b *Brain) ffaOnly() bool {
+	return !b.pracOn && (b.notPractice || !b.base.Practice)
+}
+
+
+func (b *Brain) ffaThirdParty(t *Track, selfID int, now float64) bool {
+	if !ffaVultureMode || !b.ffaOnly() {
+		return false
+	}
+	otherHit := b.ffaOtherHitAt[t.ID]
+	if otherHit > 0 && otherHit > b.ffaOwnHitAt[t.ID] && now-otherHit <= 2 {
+		return true
+	}
+	for _, other := range b.tracks {
+		if other.ID == t.ID || other.ID == selfID || other.Kind != "mech" || other.Seen != now {
+			continue
+		}
+		if hyp(other.Pos[0]-t.Pos[0], other.Pos[1]-t.Pos[1]) <= 70 {
+			return true
+		}
+	}
+	return false
 }
 
 func (b *Brain) zoneAt(z *Zone, t float64) circle {
@@ -571,6 +625,17 @@ func (b *Brain) step(o *Obs, act *Action) {
 		case aimed && t.Dist < 190:
 			t.Engage = true
 		}
+		thirdParty := false
+		if ffaVultureMode && b.ffaOnly() {
+			thirdParty = b.ffaThirdParty(t, me.ID, now)
+			defensive := now-t.HitMe < 6
+			fullHP := t.HP >= 0.99*math.Max(1, t.MaxHP)
+			if o.Alive > 6 && fullHP && !thirdParty && !defensive {
+				t.Engage = false
+			} else if thirdParty && t.Dist < maxT {
+				t.Engage = true
+			}
+		}
 		if t.Engage && !t.LOS && t.Dist < maxT && (hidden == nil || t.Dist < hidden.Dist) {
 			hidden = t
 		}
@@ -586,6 +651,9 @@ func (b *Brain) step(o *Obs, act *Action) {
 		}
 		if b.P.Backstab > 0 && b.showsBack(t, x, y) {
 			s -= b.P.Backstab
+		}
+		if ffaVultureMode && b.ffaOnly() && thirdParty {
+			s -= 90
 		}
 		if now-t.HitMe < 4 {
 			s -= 40
