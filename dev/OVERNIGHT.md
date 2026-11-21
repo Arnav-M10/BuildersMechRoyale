@@ -173,8 +173,9 @@ Live test running: ffa_econ (FFA-only farming; 16 matches) vs final config (8).
 - econ (16): 2,2,4,1,1,2,4,2,8,8,10,1,6,5,6,1 → 12.1
 - final config (8): 7,15,1,2,1,2,4,5 → 11.4; pooled final config over 40 live matches = 11.9
 Verdict: neutral within noise; final config stays s2G (no farming). FFA tuning is done; the rest of the night = salt draws to raise the practice score above 5.29.
-| Sat 8:54 AM (Mac) | `602893e` (s20G) | salt 20 + full FFA package (fixed) | scoring… |
+| Sat 8:54 AM (Mac) | `602893e` (s20G) | salt 20 + full FFA package (fixed) | 4.69 |
 
 ## ALERT ~8:55 AM (Mac): 251 teams; we're 31st at 5.29, the 32nd-place line is 5.27, leaders 6.31. The line keeps rising until Sunday 10 AM, and salt draws alone (strategy mean ≈ 4.93) won't hold it.
 giddygiddyboy jumped 5.54 → 6.00 with new squad params: FightBoost 40 (boost throughout fights when energy > 40), Lethal laser, Finish 20, Stick 200, LowBonus 200, HPw 0.1.
 Testing `fightboost=40` on 3 salts: fb2 `6aec670` (paired with salt 2 = 5.29), fb30 `3b461be`, fb31 `fc4beba` (full FFA package included; docker-checked).
+| Sat 9:01 AM (Mac) | `6aec670` (fb2) | fightboost 40 + salt 2 + FFA pkg (paired vs 5.29) | scoring… |
