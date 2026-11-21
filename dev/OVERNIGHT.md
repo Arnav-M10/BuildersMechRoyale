@@ -221,5 +221,7 @@ gn 4 draws mean 5.12. Codex dispatched (12:25): structural port — clearance ra
 gn 5 draws mean 5.15. Codex structural port merged (default off; dev/GIDDY_STRUCT.md). Full-port draws: gs47 `bd81420`, gs48 `535abef`, gs2 `c1d4e9d` (docker PASS). Live FFA safety run of gs47 started.
 ### FFA live gs47 (18): 1,5,12,5,2,1,10,5,4,1,2,6,3,10,2,11,2,6 → 11.1, no errors.
 | Sat 12:56 PM (Mac) | `bd81420` (gs47) | giddy + full structural port + salt 47 | 5.08 |
-| Sat 1:04 PM (Mac) | `535abef` (gs48) | giddy + full structural port + salt 48 | scoring… |
+| Sat 1:04 PM (Mac) | `535abef` (gs48) | giddy + full structural port + salt 48 | 4.83 |
 Codex debate dispatched (12:57): new practice levers (facing/rear armor, sensor contact-breaking, zone timing, HP tiebreak…).
+gs (full structural port: clear/escape/laserpre/npcmem) 2 draws 5.08/4.83 (mean 4.96) < gn 5.15 → structural knobs stay OFF.
+Codex levers merged (dev/LEVERS.md): g_frontarc (face rear attackers / sound bearings), g_cube_guard (no size-only cube detours past cap). Draws gfc49 `73a3e24`, gfc50 `5e7fc87`, gfc51 `5fb323a` = gn + both levers (docker PASS).
