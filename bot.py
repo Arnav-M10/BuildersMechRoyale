@@ -36,6 +36,10 @@ P = {
     "g_npcmem": False,    # retain NPC tracks for source's 120 s memory window
     "g_frontarc": False,  # face likely threats when idle; favor a recent rear-arc attacker
     "g_cube_guard": False, # avoid post-cap cube detours except the last cube to an upgrade offer
+    "g_dropheal": False,   # giddy core: divert while retreating/low HP to a safe supply drop
+    "g_zonelaser": False,  # don't charge a laser when outside zone or needing urgent rotation
+    "g_chargefix": False,  # account precisely for 0.01 s rounded laser charge observations
+    "g_critical_recovery": False, # recover from <25% to 60% before resuming fights
     "chase": True,        # push toward a target we cannot see when healthy
     "retreat_hp": 0.38,   # break line of sight below this HP fraction
     "laser_band": (50.0, 120.0),
@@ -301,6 +305,7 @@ class Brain:
         self.giddy_last_threat_at = -100.0
         self.giddy_lose_at = -1.0
         self.giddy_retreat = False
+        self.giddy_critical_recovery = False
         self.giddy_bad = {}
         self.giddy_loot_id = None
         self.giddy_loot_since = -99.0
@@ -805,6 +810,9 @@ class Brain:
         giddy_danger = False
         if core_giddy:
             giddy_danger, _, _, _ = self.giddy_combat_state(t, me, tlist, threats, target, hpf)
+            if self.giddy_critical_recovery:
+                target = None
+                self.target_id = None
             self._giddy_current_loot = (self.giddy_choose_loot(obs, hpf, giddy_danger, kinds)
                                         if not ffa_active and target is None else None)
         else:
@@ -843,9 +851,11 @@ class Brain:
                         npc_target = n
         if ffa_active and target is None and not P["ffa_econ"]:
             npc_target = None
+        if core_giddy and self.giddy_critical_recovery:
+            npc_target = None
 
         giddy_farm = None
-        if core_giddy and not ffa_active and target is None:
+        if core_giddy and not ffa_active and target is None and not self.giddy_critical_recovery:
             if npc_target is not None:
                 giddy_farm = npc_target
             else:
@@ -1356,6 +1366,9 @@ class Brain:
             hp_now = float(me.get("hp", 1.0))
             finishing = target is not None and target["dist"] < 120.0 and (
                 float(target.get("hp") or 1400.0) < 200.0 or float(target.get("hp") or 1400.0) < hp_now * 0.5)
+            dropheal_mode = (self.giddy_retreat or hpf < 0.6) and not finishing
+            dropheal_goal = (self.giddy_dropheal_goal(obs, px, py, walk, visible_threats)
+                             if P.get("g_dropheal", False) and dropheal_mode else None)
             escape = (self.giddy_escape_move(px, py, pz, grounded, energy, me)
                       if P.get("g_escape", False) and self.geo is not None else None)
             if escape is not None:
@@ -1376,6 +1389,15 @@ class Brain:
                 mv = self.nav_to(px, py, gx, gy, allow_climb=True)
                 boost = (not in_zone or t + t_need >= deadline) and energy > 5.0
                 label = "zone"
+            elif dropheal_goal is not None:
+                dx, dy = dropheal_goal[0] - px, dropheal_goal[1] - py
+                dd = hyp(dx, dy)
+                if dd < 6.0:
+                    mv, label = (0.0, 0.0), "dropheal-hold"
+                else:
+                    mv = self.nav_to(px, py, dropheal_goal[0], dropheal_goal[1], allow_climb=True)
+                    boost = energy > 45.0 and dd > 30.0
+                    label = "dropheal"
             elif self.giddy_retreat and not finishing and not late:
                 if self.cover_goal is None or t - self.cover_t > 0.4:
                     recent_threats = [e for e in threats if t - e.get("seen", -99.0) <= 2.5]
@@ -1881,7 +1903,15 @@ class Brain:
                 losing = False
         if losing:
             self.giddy_lose_at = t
-        self.giddy_retreat = (t - self.giddy_lose_at < 1.5 and self.giddy_lose_at > 0.0)
+        if P.get("g_critical_recovery", False):
+            if hpf < 0.25:
+                self.giddy_critical_recovery = True
+            elif hpf >= 0.60:
+                self.giddy_critical_recovery = False
+        else:
+            self.giddy_critical_recovery = False
+        self.giddy_retreat = (self.giddy_critical_recovery or
+                              (t - self.giddy_lose_at < 1.5 and self.giddy_lose_at > 0.0))
         return danger, crowd, finishing, swamped
 
     def giddy_pref_range(self, kinds, energy, target):
@@ -1928,6 +1958,24 @@ class Brain:
             if hyp(x - cx, y - cy) > cr - pad:
                 return tt
         return se
+
+    def giddy_laser_zone_ok(self, obs):
+        """Whether laser charging can safely spend the movement speed this tick."""
+        me = obs.get("self") or {}
+        if not me.get("in_zone", True):
+            return False
+        pos = me.get("pos") or [0.0, 0.0, 0.0]
+        x, y = float(pos[0]), float(pos[1])
+        zone = obs.get("zone") or {}
+        cx, cy, cr = self.zone_at(zone, self.t)
+        if hyp(x - cx, y - cy) > cr + 0.05:
+            return False
+        gx, gy = self.giddy_zone_goal(zone, x, y)
+        dist = hyp(gx - x, gy - y)
+        walk = float((me.get("stats") or {}).get("walk_speed", 11.7))
+        t_need = dist * 1.45 / max(1.0, walk) + 4.0
+        deadline = self.giddy_zone_deadline(zone, x, y, 8.0)
+        return self.t + t_need + 3.0 < deadline
 
     def giddy_zone_penalty(self, zone, x, y, t):
         cx, cy, cr = self.giddy_zone_at(zone, t)
@@ -2221,10 +2269,18 @@ class Brain:
         full_charge = float(laser_stats.get("charge", 0.75))
         hold_s = float(laser_stats.get("hold_s", 2.0))
         charge = float((laser or {}).get("charge", 0.0))
+        zone_laser_ok = (not P.get("g_zonelaser", False) or self.giddy_laser_zone_ok(obs))
+        charge_fix = P.get("g_chargefix", False)
+        charge_eps = 0.0055
         yaw = pitch = None
         if shoot is None:
             if laser is not None and charge > 0.0 and laser_slot is not None:
-                fire[laser_slot] = charge < full_charge + hold_s - 0.35
+                if self.giddy_critical_recovery or not zone_laser_ok:
+                    fire[laser_slot] = False
+                else:
+                    overtime_at = full_charge + hold_s - 0.35
+                    overtime = (charge + charge_eps >= overtime_at if charge_fix else charge >= overtime_at)
+                    fire[laser_slot] = not overtime
             return yaw, pitch, fire
 
         kind = shoot.get("kind", "mech")
@@ -2307,7 +2363,9 @@ class Brain:
             min_charge = float(laser_stats.get("min_charge", 0.15))
             min_frac = float(laser_stats.get("min_frac", 0.35))
             if charge > 0.0:
-                lethal = charge >= min_charge and charge < full_charge - 0.051
+                full = (charge + charge_eps >= full_charge if charge_fix
+                        else charge >= full_charge - 0.051)
+                lethal = charge >= min_charge and not full
                 dmg = float(laser_stats.get("damage", 315.0)) * (
                     min_frac + (1.0 - min_frac) * min(1.0, charge / max(0.01, full_charge)))
                 dmg *= 1.0 + self.dmg_per_cube * min(float(me.get("cubes", 0)), self.stat_cap)
@@ -2315,9 +2373,11 @@ class Brain:
                     dmg *= 1.0 + float(laser_stats.get("cookoff", 0.6))
                 kill_now = (lethal and shoot.get("hp") is not None and dmg * (P["g_lethalk"] if P["core"] == "giddy" else 0.8) >= float(shoot["hp"])
                             and aligned_now)
-                full = charge >= full_charge - 0.051
-                overtime = charge >= full_charge + hold_s - 0.35
-                if los_ok and in_range and ((full and aligned_now) or kill_now):
+                overtime_at = full_charge + hold_s - 0.35
+                overtime = (charge + charge_eps >= overtime_at if charge_fix else charge >= overtime_at)
+                if not zone_laser_ok:
+                    fire[laser_slot] = False
+                elif los_ok and in_range and ((full and aligned_now) or kill_now):
                     fire[laser_slot] = False
                     if charge > full_charge * 0.45:
                         yaw, pitch = hy, hp
@@ -2332,9 +2392,9 @@ class Brain:
                 if P["core"] == "giddy" and P.get("g_laserpre", False):
                     # Go starts a laser on a visible mech inside horizontal weapon range;
                     # charging while the turret slews avoids losing the first firing window.
-                    if ready and los_ok and dist < float(laser_stats.get("range", 280.0)):
+                    if ready and zone_laser_ok and los_ok and dist < float(laser_stats.get("range", 280.0)):
                         fire[laser_slot] = True
-                elif ready and los_ok and d3 < float(laser_stats.get("range", 280.0)) * 0.97 and \
+                elif ready and zone_laser_ok and los_ok and d3 < float(laser_stats.get("range", 280.0)) * 0.97 and \
                         abs(wrap(hy - aim_now[0])) < 0.6:
                     fire[laser_slot] = True
         if pitch is not None:
@@ -2356,6 +2416,41 @@ class Brain:
                 drop = 1
             return pid, drop
         return None
+
+    def giddy_dropheal_goal(self, obs, px, py, walk, visible_threats):
+        """Pick a reachable restorative drop without walking into a visible contest."""
+        me = obs.get("self") or {}
+        zone = obs.get("zone") or {}
+        my_id = me.get("id")
+        now = self.t
+        best, best_d = None, 120.0
+        nc = zone.get("next_center") or zone.get("center") or [px, py]
+        nr = float(zone.get("next_radius", zone.get("radius", 1e9)))
+        for dr in obs.get("drops") or []:
+            pos = dr.get("pos")
+            if not pos or (dr.get("holder") is not None and dr.get("holder") != my_id):
+                continue
+            d = hyp(float(pos[0]) - px, float(pos[1]) - py)
+            if d > 120.0 or d >= best_d:
+                continue
+            if hyp(float(pos[0]) - float(nc[0]), float(pos[1]) - float(nc[1])) > nr - 6.0:
+                continue
+            if any(hyp(float(e["pos"][0]) - float(pos[0]),
+                       float(e["pos"][1]) - float(pos[1])) < 35.0 for e in visible_threats):
+                continue
+            travel = d * 1.45 / max(1.0, walk)
+            lands_in = float(dr.get("lands_in", 0.0))
+            if lands_in > travel + 6.0:
+                continue
+            deadline = self.giddy_zone_deadline(zone, float(pos[0]), float(pos[1]), 8.0)
+            if now + max(travel, lands_in) + 4.5 >= deadline:
+                continue
+            if self.geo is not None:
+                nf = self.geo.nearest_free(float(pos[0]), float(pos[1]))
+                if nf is None or self.geo.comp[nf] != self.giddy_main_comp:
+                    continue
+            best, best_d = (float(pos[0]), float(pos[1])), d
+        return best
 
     def giddy_choose_loot(self, obs, hpf, danger, kinds):
         """Regular (non-Econ) chooseLoot with squadParams values (brain.go:1579-1762)."""
