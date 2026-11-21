@@ -17,9 +17,10 @@ from array import array
 
 _now = time.perf_counter
 
-CACHE_VERSION = 5
+CACHE_VERSION = 8
 NAV = 2            # nav node spacing in metres (every 2nd terrain vertex)
 CLEAR_R = 3.0      # clearance from walls for nav nodes (mech radius 2.5 + margin)
+CLEARANCE_MAX = 20.0
 HEAD = 16.0        # a solid whose base is lower than ground + HEAD blocks a mech (mechs grow 5%/cube)
 STEP = 1.2         # step-up height
 TALL = 8.0         # solid this tall above ground counts as cover
@@ -212,7 +213,14 @@ class Geo:
 
         g.terr, g.lo, g.hi, g.multi = terr, lo, hi, multi
         g.NNX, g.NNY, g.nav = NNX, NNY, nav
+        g.clearance = _clearance_raster(nav, NNX, NNY, NAV)
+        # Path walkability is on the ground nav raster; roofs are not nav surfaces. Airborne
+        # roof following uses surface() directly, so an overhang cannot look like a 20 m step.
+        g.nav_surface = _nav_surface(terr, NX, NY, X0, Y0, NNX, NNY, NAV)
         g.comp, g.comp_size = _components(nav, NNX, NNY)
+        g.escape_comp, g.escape_comp_size = _components_step(nav, g.nav_surface, NNX, NNY)
+        g.escape_main_id = max(range(len(g.escape_comp_size)), key=g.escape_comp_size.__getitem__)
+        g.main_near = _main_near(nav, g.escape_comp, g.escape_comp_size, NNX, NNY, max_depth=20)
         g._index_cover(cover_nodes)
         g.cover_nodes = cover_nodes
         g._finish()
@@ -235,7 +243,8 @@ class Geo:
 
     # ------------------------------------------------------------------ cache
     STATE = ("X0", "Y0", "NX", "NY", "bounds", "terr", "lo", "hi", "multi", "NNX", "NNY", "nav",
-             "cover_nodes", "comp", "comp_size")
+             "cover_nodes", "comp", "comp_size", "clearance", "main_near", "nav_surface",
+             "escape_comp", "escape_comp_size", "escape_main_id")
 
     def save(self, path: str, src_hash: str) -> None:
         d = {k: getattr(self, k) for k in self.STATE}
@@ -410,6 +419,10 @@ class Geo:
     def main_comp(self):
         return max(range(len(self.comp_size)), key=lambda c: self.comp_size[c])
 
+    def escape_comp_at(self, x, y):
+        k = self.nearest_free(x, y)
+        return -1 if k is None else self.escape_comp[k]
+
     def nearest_in_comp(self, x, y, comp, maxr=40):
         """Nearest free nav node of region `comp` around (x, y), as (x, y), or None."""
         I, J = self.node_of(x, y)
@@ -448,7 +461,7 @@ class Geo:
                 return False
         return True
 
-    def astar(self, sx, sy, gx, gy, max_nodes=6000, deadline=None):
+    def astar(self, sx, sy, gx, gy, max_nodes=6000, deadline=None, clearance=False):
         """Weighted A* on the nav grid. Returns a list of (x, y) waypoints (excluding the start),
         ending at the goal node, or at the explored node closest to the goal."""
         s = self.nearest_free(sx, sy)
@@ -459,13 +472,13 @@ class Geo:
             return [self.node_xy(g)]
         NNX, NNY, nav = self.NNX, self.NNY, self.nav
         gI, gJ = g % NNX, g // NNX
-        W = 1.3
+        W = 1.15 if clearance else 1.3
         SQ2 = 1.41421356
 
         def h(k):
             dx = abs(k % NNX - gI)
             dy = abs(k // NNX - gJ)
-            return W * ((dx + dy) + (SQ2 - 2) * min(dx, dy))
+            return W * NAV * ((dx + dy) + (SQ2 - 2) * min(dx, dy))
 
         openh = [(h(s), 0.0, s)]
         gc = {s: 0.0}
@@ -501,6 +514,11 @@ class Geo:
                     continue
                 if di and dj and (not nav[J * NNX + ii] or not nav[jj * NNX + I]):
                     continue
+                if clearance:
+                    cl = self.clearance[kk]
+                    c *= NAV
+                    if cl < 4:
+                        c *= 1.0 + (4.0 - cl) * 0.15
                 ng = gk + c
                 if ng < gc.get(kk, 1e18):
                     gc[kk] = ng
@@ -515,6 +533,69 @@ class Geo:
         if not path:
             path = [self.node_xy(best)]
         return path
+
+    def escape_plan(self, x, y, max_expand=10000):
+        """Return a walkable launch point and a landing point in the main region."""
+        start = self.nearest_free(x, y)
+        main = self.escape_main_id
+        if start is None or self.escape_comp[start] == main:
+            return None
+        n = self.NNX * self.NNY
+        dist = array("i", [-1]) * n
+        dist[start] = 0
+        queue = array("i", [start])
+        best, best_score = -1, float("inf")
+        head = 0
+        nbrs = ((1, 0), (-1, 0), (0, 1), (0, -1),
+                (1, 1), (1, -1), (-1, 1), (-1, -1))
+        while head < len(queue) and head < max_expand:
+            cell = queue[head]
+            head += 1
+            i, j = cell % self.NNX, cell // self.NNX
+            steps = dist[cell]
+            near = self.main_near[cell]
+            if near >= 0:
+                cx, cy = self.node_xy(cell)
+                mx, my = self.node_xy(near)
+                score = steps * NAV + 4.0 * math.hypot(mx - cx, my - cy)
+                if score < best_score:
+                    best, best_score = cell, score
+            # Queue order is breadth-first, so no later node can beat this lower bound.
+            if steps * NAV > best_score:
+                break
+            for di, dj in nbrs:
+                ni, nj = i + di, j + dj
+                if ni < 0 or nj < 0 or ni >= self.NNX or nj >= self.NNY:
+                    continue
+                nxt = nj * self.NNX + ni
+                if dist[nxt] >= 0 or not self.nav[nxt]:
+                    continue
+                if di and dj and (not self.nav[j * self.NNX + ni] or
+                                  not self.nav[nj * self.NNX + i]):
+                    continue
+                # Match World.canStep's uphill limit; the nav raster has already removed
+                # steep terrain, while this prevents a path from stepping up a tall slab.
+                rise = self.nav_surface[nxt] - self.nav_surface[cell]
+                if rise > (3.1 if di and dj else 2.2):
+                    continue
+                dist[nxt] = steps + 1
+                queue.append(nxt)
+        if best < 0:
+            return None
+        lx, ly = self.node_xy(best)
+        near = self.main_near[best]
+        mx, my = self.node_xy(near)
+        d = math.hypot(mx - lx, my - ly)
+        if d > 0.1:
+            ex, ey = mx + (mx - lx) / d * 5.0, my + (my - ly) / d * 5.0
+            bx0, bx1, by0, by1 = self.bounds
+            ii, jj = self.node_of(ex, ey)
+            if (bx0 <= ex <= bx1 and by0 <= ey <= by1 and 0 <= ii < self.NNX and
+                    0 <= jj < self.NNY):
+                k = jj * self.NNX + ii
+                if self.nav[k] and self.escape_comp[k] == main:
+                    mx, my = ex, ey
+        return (lx, ly), (mx, my)
 
     def cover_near(self, x, y, r):
         B = self.cover_bucket
@@ -564,6 +645,133 @@ def _components(nav, NNX, NNY):
                 stack.append(k + NNX)
         sizes.append(n)
     return comp, sizes
+
+
+def _clearance_raster(nav, NNX, NNY, spacing):
+    """Distance to the nearest blocked nav node, in metres, capped at 20 m.
+
+    This mirrors giddy4/world.go's four-connected multi-source distance transform. A byte per
+    node keeps the persisted cache small; all distances are integer multiples of NAV (2 m).
+    """
+    n = NNX * NNY
+    clearance = bytearray([255]) * n
+    q = array("i")
+    for k, free in enumerate(nav):
+        if not free:
+            clearance[k] = 0
+            q.append(k)
+    head = 0
+    step = int(spacing)
+    while head < len(q):
+        k = q[head]
+        head += 1
+        d = clearance[k] + step
+        if d > CLEARANCE_MAX:
+            continue
+        i, j = k % NNX, k // NNX
+        if i > 0:
+            nb = k - 1
+            if clearance[nb] > d:
+                clearance[nb] = d
+                q.append(nb)
+        if i + 1 < NNX:
+            nb = k + 1
+            if clearance[nb] > d:
+                clearance[nb] = d
+                q.append(nb)
+        if j > 0:
+            nb = k - NNX
+            if clearance[nb] > d:
+                clearance[nb] = d
+                q.append(nb)
+        if j + 1 < NNY:
+            nb = k + NNX
+            if clearance[nb] > d:
+                clearance[nb] = d
+                q.append(nb)
+    for k, d in enumerate(clearance):
+        if d > CLEARANCE_MAX:
+            clearance[k] = int(CLEARANCE_MAX)
+    return clearance
+
+
+def _components_step(nav, surface, NNX, NNY, max_step=2.2):
+    """Go-style nav regions: cardinal neighbors connect only when each can step to the other."""
+    n = NNX * NNY
+    comp = array("i", [-1]) * n
+    sizes = []
+    for start in range(n):
+        if not nav[start] or comp[start] >= 0:
+            continue
+        label = len(sizes)
+        comp[start] = label
+        q = array("i", [start])
+        head = 0
+        while head < len(q):
+            k = q[head]
+            head += 1
+            i, j = k % NNX, k // NNX
+            z = surface[k]
+            for nb in (k - 1 if i > 0 else -1,
+                       k + 1 if i + 1 < NNX else -1,
+                       k - NNX if j > 0 else -1,
+                       k + NNX if j + 1 < NNY else -1):
+                if nb < 0 or not nav[nb] or comp[nb] >= 0:
+                    continue
+                # Go's comp builder requires canStep in both directions.
+                if abs(surface[nb] - z) > max_step:
+                    continue
+                comp[nb] = label
+                q.append(nb)
+        sizes.append(len(q))
+    return comp, sizes
+
+
+def _main_near(nav, comp, comp_size, NNX, NNY, max_depth=20):
+    """Nearest main-component node for each cell within a 20-node 8-connected radius."""
+    if not comp_size:
+        return array("i")
+    main = max(range(len(comp_size)), key=comp_size.__getitem__)
+    n = NNX * NNY
+    near = array("i", [-1]) * n
+    depth = bytearray(n)
+    q = array("i")
+    for k, free in enumerate(nav):
+        if free and comp[k] == main:
+            near[k] = k
+            q.append(k)
+    head = 0
+    while head < len(q):
+        k = q[head]
+        head += 1
+        d = depth[k]
+        if d >= max_depth:
+            continue
+        i, j = k % NNX, k // NNX
+        for di, dj in ((1, 0), (-1, 0), (0, 1), (0, -1),
+                       (1, 1), (1, -1), (-1, 1), (-1, -1)):
+            ni, nj = i + di, j + dj
+            if ni < 0 or nj < 0 or ni >= NNX or nj >= NNY:
+                continue
+            nb = nj * NNX + ni
+            if near[nb] < 0:
+                near[nb] = near[k]
+                depth[nb] = d + 1
+                q.append(nb)
+    return near
+
+
+def _nav_surface(terr, NX, NY, X0, Y0, NNX, NNY, spacing):
+    """Ground walk surface at each nav node, used for step-up tests in escape planning."""
+    out = array("f", [0.0]) * (NNX * NNY)
+    for j in range(NNY):
+        y = min(NY - 1, max(0, int(round(Y0 + j * spacing - Y0))))
+        row = y * NX
+        for i in range(NNX):
+            x = min(NX - 1, max(0, int(round(X0 + i * spacing - X0))))
+            k = row + x
+            out[j * NNX + i] = terr[k]
+    return out
 
 
 def main(argv):

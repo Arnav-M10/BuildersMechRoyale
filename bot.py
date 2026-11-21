@@ -29,6 +29,10 @@ P = {
     "g_nav": False,       # deeper, closer-to-source giddy path follower
     "g_cover": False,     # source-style reachable-cell cover BFS
     "g_stuck": False,     # shorter grounded stuck threshold from giddy3
+    "g_clear": False,     # clearance-weighted giddy paths (costlier than the default A*)
+    "g_escape": False,    # source EscapePlan launch/landing and roof-following jet
+    "g_laserpre": False,  # begin charging a visible in-range laser before aim alignment
+    "g_npcmem": False,    # retain NPC tracks for source's 120 s memory window
     "chase": True,        # push toward a target we cannot see when healthy
     "retreat_hp": 0.38,   # break line of sight below this HP fraction
     "laser_band": (50.0, 120.0),
@@ -263,6 +267,10 @@ class Brain:
         self.path_goal = None
         self.path_t = -99.0
         self.g_escape_goal = None
+        self.g_esc_launch = None
+        self.g_esc_land = None
+        self.g_esc_at = -99.0
+        self.g_esc_flying = False
         self.hist = []          # (t, x, y, commanded)
         self.stuck_until = -1.0
         self.stuck_dir = (0.0, 0.0)
@@ -389,8 +397,9 @@ class Brain:
         for mid in list(self.enemies):
             if t - self.enemies[mid]["seen"] > 20.0:
                 del self.enemies[mid]
+        npc_memory = 120.0 if P["core"] == "giddy" and P.get("g_npcmem", False) else 10.0
         for mid in list(self.npcs):
-            if t - self.npcs[mid]["seen"] > 10.0:
+            if t - self.npcs[mid]["seen"] > npc_memory:
                 del self.npcs[mid]
         px, py = me["pos"][0], me["pos"][1]
         # loot memory
@@ -1159,6 +1168,7 @@ class Brain:
             return dx / d, dy / d
         try:
             giddy_nav = P["core"] == "giddy" and P.get("g_nav", False)
+            giddy_clear = P["core"] == "giddy" and P.get("g_clear", False)
             if d < (45.0 if giddy_nav else 70.0) and g.seg_free(px, py, gx, gy):
                 self.path = None
                 return dx / d, dy / d
@@ -1174,9 +1184,11 @@ class Brain:
             skipped = False
             if need:
                 if self.time_left() > 0.012:
-                    # Go's World.Path allows 22k expansions; bound the Python variant to 8k.
-                    p = g.astar(px, py, gx, gy, max_nodes=8000 if giddy_nav else 2500,
-                                deadline=self.deadline - 0.004)
+                    # Go expands ~22k nodes in native code. Python's calibrated cap preserves
+                    # the 50 ms protocol budget with room for the rest of this decision.
+                    nodes = 4000 if giddy_clear else (8000 if giddy_nav else 2500)
+                    p = g.astar(px, py, gx, gy, max_nodes=nodes,
+                                deadline=self.deadline - 0.004, clearance=giddy_clear)
                     self.path = p
                     self.path_goal = (gx, gy)
                     self.path_t = self.t
@@ -1327,7 +1339,13 @@ class Brain:
             hp_now = float(me.get("hp", 1.0))
             finishing = target is not None and target["dist"] < 120.0 and (
                 float(target.get("hp") or 1400.0) < 200.0 or float(target.get("hp") or 1400.0) < hp_now * 0.5)
-            if self.g_escape_goal is not None:
+            escape = (self.giddy_escape_move(px, py, pz, grounded, energy, me)
+                      if P.get("g_escape", False) and self.geo is not None else None)
+            if escape is not None:
+                mv, boost, jump = escape
+                label = "escape"
+                self.hist.clear()
+            elif self.g_escape_goal is not None:
                 egx, egy = self.g_escape_goal
                 if grounded:
                     mv = self.nav_to(px, py, egx, egy, allow_climb=True)
@@ -1593,6 +1611,63 @@ class Brain:
         if charging and not giddy_active:
             boost = False  # half speed anyway, keep energy
         return mv, boost, jump, label
+
+    def giddy_escape_move(self, px, py, pz, grounded, energy, me):
+        """Source-style EscapePlan. Return (move, boost, jump), or None when not escaping."""
+        g = self.geo
+        if g is None:
+            return None
+        if grounded:
+            # The source avoids trying to escape while standing on a raised slab/roof.
+            try:
+                ground = g.ground(px, py)
+                if pz - ground > 3.0 and g.surface(px, py) - ground > 3.0:
+                    self.g_esc_launch = self.g_esc_land = None
+                    self.g_esc_flying = False
+                    self.g_esc_at = -99.0
+                    return None
+            except Exception:
+                pass
+            try:
+                in_main = g.escape_comp_at(px, py) == g.escape_main_id
+            except Exception:
+                in_main = self.my_comp == self.main_comp
+            if in_main:
+                self.g_esc_launch = self.g_esc_land = None
+                self.g_esc_flying = False
+                self.g_esc_at = -99.0
+                return None
+            self.g_esc_flying = False
+            if self.g_esc_at < 0.0 or self.t - self.g_esc_at > 6.0:
+                plan = g.escape_plan(px, py, max_expand=10000)
+                self.g_esc_at = self.t
+                if plan is None:
+                    self.g_esc_launch = self.g_esc_land = None
+                else:
+                    self.g_esc_launch, self.g_esc_land = plan
+            if self.g_esc_launch is None or self.g_esc_land is None:
+                return None
+            lx, ly = self.g_esc_launch
+            if hyp(lx - px, ly - py) > 2.5:
+                return self.nav_to(px, py, lx, ly), False, False
+            max_energy = float(me.get("max_energy", 100.0))
+            if energy < min(70.0, max_energy * 0.7):
+                return (0.0, 0.0), False, False
+            self.g_esc_flying = True
+        elif not self.g_esc_flying:
+            return None
+
+        lx, ly = self.g_esc_land
+        dx, dy = lx - px, ly - py
+        d = hyp(dx, dy)
+        if d < 1.5:
+            return (0.0, 0.0), False, False
+        mx, my = dx / d, dy / d
+        need = -1e9
+        for along in range(int(min(d, 30.0)) + 1):
+            need = max(need, g.surface(px + mx * along, py + my * along))
+        boost = pz < need + 2.5 and energy > 1.0
+        return (mx, my), boost, grounded
 
     def laser_juke(self, t, px, py, pz, vx, vy, visible_threats, energy):
         """Movement to slip an incoming laser: the shooter's charge is visible and it fires along
@@ -2204,7 +2279,12 @@ class Brain:
                         yaw, pitch = hy, hp
             else:
                 ready = float(laser.get("cooldown", 0.0)) <= 0.05 and self.t >= self.shorted_until
-                if ready and los_ok and d3 < float(laser_stats.get("range", 280.0)) * 0.97 and \
+                if P["core"] == "giddy" and P.get("g_laserpre", False):
+                    # Go starts a laser on a visible mech inside horizontal weapon range;
+                    # charging while the turret slews avoids losing the first firing window.
+                    if ready and los_ok and dist < float(laser_stats.get("range", 280.0)):
+                        fire[laser_slot] = True
+                elif ready and los_ok and d3 < float(laser_stats.get("range", 280.0)) * 0.97 and \
                         abs(wrap(hy - aim_now[0])) < 0.6:
                     fire[laser_slot] = True
         if pitch is not None:
