@@ -1,0 +1,26 @@
+# Practice survival levers
+
+## Ranking
+
+These are mechanism-based estimates of mean `16 - place` points, not measured deltas. A single place gained in 5% of matches is only +0.05 mean points, while overnight draws swing about ±0.2 from RNG salt. The submitted v1 giddy core already aims at its selected target, favors recent attackers, uses `damaged.bearing` when idle, retreats at its lose/crowd thresholds, predicts zone deadlines, and takes plating/armor early. I avoided replacing those working rules wholesale.
+
+1. **Protect the front arc (`g_frontarc`, implemented): estimated +0.05 to +0.20.** Protocol §7 says shots from outside the 180° front arc deal ×1.5 and reports `damaged.rear`; §6 exposes the shooter id and bearing. When a mech that is still a legal visible target recently hit us through the rear arc, the giddy target score now gives it a strong temporary priority. Its existing aim and fire solution then face that shooter. With no target to aim at, recent gun/laser/lightning/step/boost bearings steer the torso instead of the travel-direction scan; this also turns the §8 vision wedge toward the likely threat. No aim is overridden while a target is being shot. Code: default-off knob at `bot.py:36`, rear-hit capture at `bot.py:458-462`, target score at `bot.py:738-741`, and no-target facing at `bot.py:2143-2191`.
+2. **Avoid size-only cube detours (`g_cube_guard`, implemented): estimated +0.00 to +0.15, with downside risk.** Protocol §10 says cubes add 5% size without a cap, while HP/damage scaling caps at 10; a large mech is easier to hit. Giddy previously pulled toward remembered cubes in `giddy_fight_move()` and `giddy_choose_loot()` even above that cap. The knob stops those detours, except when one cube reaches the next configured upgrade threshold (for example, from 14 to 15), since that cube also earns an offer. This trades a smaller target against delayed offers and incidental cube pickup; it is a candidate for real A/B, not a guaranteed gain. Code: default-off knob at `bot.py:37`, `giddy_fight_move()` at `bot.py:2049-2125`, `giddy_cube_pursuit()` at `bot.py:2127-2136`, and `giddy_choose_loot()` at `bot.py:2353-2399`.
+3. **Use sound to choose cover while retreating (`g_soundcover`, proposed only): estimated +0.00 to +0.10.** At `movement()`'s giddy retreat branch (`bot.py:1378+`) and `giddy_cover_goal()` (`bot.py:1966+`), use a recent weapon sound bearing as a rough direction when there is no recent mech track, and pick a reachable hard-cover cell blocking that direction. This could block shots from an unseen hunter. I rank it below the two patches because sound bearings have 7° error and coarse near/mid/far distance, and one bad estimate can send a low-HP mech across open ground.
+
+## Examples considered
+
+- **Always face the nearest threat:** reject the unconditional form. While firing, torso aim determines the shot (§7); turning away from the selected target wastes a firing window. `g_frontarc` only biases a target when it actually caused a rear hit and uses sound facing only when there is no shot aim.
+- **Hide from house-bot sensors:** full concealment is low value. Per the practice rules, the house bots share vision; §8 also gives 45 m proximity sensing in any direction, 200 m vision in a 120° yaw wedge, and a 5 s current-position track after sight is lost. Gun sounds carry 320 m, laser 380 m, and boosting/jetting 90 m. Hard cover still blocks shots, which the giddy cover search already exploits; walking slowly to stay quiet would cost ground and zone time.
+- **Zone-edge timing:** no separate knob. The giddy path already uses the known next circle and a sampled shrink deadline in `giddy_zone_goal()` / `giddy_zone_deadline()` and takes action before running out of time. Outside-zone damage ignores armor and blocks regen (§7, §9), so delaying for edge position is a poor survival trade.
+- **HP tiebreak at timeout:** negligible. §4 gives same-tick deaths the same place and ranks survivors by HP only at 8:00. §9 closes the radius to zero around 6:55 at up to 260 HP/s; two surviving mechs cannot occupy the exact final center without separation, so a timeout tiebreak is not a practical lever.
+- **Let house bots fight NPCs:** reject. §7 NPCs shoot a mech that attacks them or mechs within 45 m/LOS near home; attacking one risks drawing it onto us. There is no action that assigns it to a hunter, and its two cubes go to the closest mech.
+- **Upgrade choice:** no new knob. The giddy rank already takes plating then armor, and only later pursues weapon upgrades. Offers arrive at configured thresholds and expire after 5 s (§10); keeping those defensive choices is the sensible survival policy. The overnight alternative-order draw was lower, though not a clean giddy-core A/B.
+
+## Patch and checks
+
+`bot_codex_levers.patch` is a unified diff of `bot.py` against `../BuildersMechRoyale/bot.py`. Both new knobs default to `False` and are scoped to `core="giddy"`.
+
+- Fuzz, seed 95, core giddy with all `g_` feature flags enabled: 0 errors, p99 6.47 ms, max 16.54 ms.
+- `dev/check/check.py` with the same knobs: PASS, 300/300 answers on time; p99 2.8 ms, max 2.9 ms.
+- Cube-threshold sanity check with the fixture config: the guard avoids pursuit at 10 and 13 cubes, allows 14→15 for the next offer, and stops again at 15.

@@ -33,6 +33,8 @@ P = {
     "g_escape": False,    # source EscapePlan launch/landing and roof-following jet
     "g_laserpre": False,  # begin charging a visible in-range laser before aim alignment
     "g_npcmem": False,    # retain NPC tracks for source's 120 s memory window
+    "g_frontarc": False,  # face likely threats when idle; favor a recent rear-arc attacker
+    "g_cube_guard": False, # avoid post-cap cube detours except the last cube to an upgrade offer
     "chase": True,        # push toward a target we cannot see when healthy
     "retreat_hp": 0.38,   # break line of sight below this HP fraction
     "laser_band": (50.0, 120.0),
@@ -238,6 +240,8 @@ class Brain:
         self.t = 0.0
         self.enemies = {}       # id -> dict(pos, vel, hp, max_hp, weapons, seen, aim, charging, cubes)
         self.npcs = {}
+        self.audio_hints = []   # recent sound bearings for optional front-arc awareness
+        self.rear_attacked_by = {}  # mech id -> time of last rear-arc hit
         self.pickups = {}       # id -> (kind, pos, seen)
         self.crates = {}        # id -> (pos, hp, seen)
         self.cubes_mem = {}     # id -> (pos, seen)
@@ -308,6 +312,7 @@ class Brain:
         self.home_key = None
         self.scan_yaw = None
         self.prev_hp = None
+        self.cubes_now = 0.0
         self.mode = "start"
         self.deadline = 0.0
         self.last_reload_cmd = -99.0
@@ -452,6 +457,8 @@ class Brain:
                 by = ev.get("by")
                 if by is not None:
                     self.attacked_by[by] = t
+                    if ev.get("rear"):
+                        self.rear_attacked_by[by] = t
                     self.giddy_last_hurt = t
                     if ev.get("bearing") is not None:
                         self.giddy_hurt_bearing = float(ev["bearing"])
@@ -500,7 +507,11 @@ class Brain:
             elif dist == "far":
                 w *= 0.5
             self.hints.append((t - float(s.get("age", 0.0)), float(b), w))
+            if P["core"] == "giddy" and P.get("g_frontarc", False):
+                self.audio_hints.append((t - float(s.get("age", 0.0)), float(b), w))
         self.hints = [h for h in self.hints if t - h[0] < 3.0][-24:]
+        if P["core"] == "giddy" and P.get("g_frontarc", False):
+            self.audio_hints = [h for h in self.audio_hints if t - h[0] < 2.0][-24:]
         self.dmg_in = [d for d in self.dmg_in if t - d[0] <= 2.5]
         self.dmg_out = [d for d in self.dmg_out if t - d[0] <= 3.0]
 
@@ -623,6 +634,7 @@ class Brain:
         hpf = hp / max_hp
         energy = float(me.get("energy", 0.0))
         cubes = float(me.get("cubes", 0))
+        self.cubes_now = cubes
         self.update_memory(obs, me)
         self.update_ffa(obs, me, t)
         alive = int(obs.get("alive", 16))
@@ -723,6 +735,10 @@ class Brain:
                     s -= 200.0
                 if t - self.attacked_by.get(e["id"], -99.0) < 4.0:
                     s -= 40.0
+                if P.get("g_frontarc", False) and t - self.rear_attacked_by.get(e["id"], -99.0) < 4.0:
+                    # Aim/fire follow the selected target: favor the visible mech whose last
+                    # hit came through our rear arc so the next exchange faces that shooter.
+                    s -= 160.0
                 ex_, ey_ = e["pos"][0], e["pos"][1]
                 ux_, uy_ = unit(px - ex_, py - ey_)
                 ev_ = e.get("vel") or [0.0, 0.0, 0.0]
@@ -2048,10 +2064,11 @@ class Brain:
         scale = 1.0 + self.size_per_cube * float(target.get("cubes") or 0)
         tc = (ex, ey, ez + 4.5 * scale)
         cube = None
-        for pos, seen in self.cubes_mem.values():
-            d = hyp(pos[0] - px, pos[1] - py)
-            if d < 40.0 and abs(pos[2] - self.pz_now) < 4.0 and (cube is None or d < hyp(cube[0] - px, cube[1] - py)):
-                cube = pos
+        if self.giddy_cube_pursuit(self.cubes_now):
+            for pos, seen in self.cubes_mem.values():
+                d = hyp(pos[0] - px, pos[1] - py)
+                if d < 40.0 and abs(pos[2] - self.pz_now) < 4.0 and (cube is None or d < hyp(cube[0] - px, cube[1] - py)):
+                    cube = pos
         zone = getattr(self, "_giddy_zone", {})
         best, bmv, blocked_side = -1e18, (0.0, 0.0), False
         for k in range(-1, 16):
@@ -2107,6 +2124,17 @@ class Brain:
             self.strafe_until = t + 0.5
         return bmv
 
+    def giddy_cube_pursuit(self, cubes):
+        """Keep stat-bearing cubes; after the stat cap, only pursue the final cube to an offer."""
+        if P["core"] != "giddy" or not P.get("g_cube_guard", False) or cubes < self.stat_cap:
+            return True
+        thresholds = ((self.cfg.get("cubes") or {}).get("upgrade_thresholds") or [])
+        try:
+            next_offer = min(int(x) for x in thresholds if int(x) > cubes)
+        except ValueError:
+            return False
+        return next_offer - cubes <= 1.0
+
     def giddy_want_pickup(self, kinds, kind):
         # brain.go:1166-1186; DefaultParams keeps NoMortar=true and LaserFirst=true.
         slots = list(kinds) + [None, None]
@@ -2142,6 +2170,21 @@ class Brain:
             yaw = self.giddy_npc_bearing
         elif t - self.giddy_last_hurt < 2.5:
             yaw = self.giddy_hurt_bearing
+        elif P["core"] == "giddy" and P.get("g_frontarc", False) and not self.laser_charging_now:
+            # With no shot to aim, use recent weapon/footstep bearings instead of scanning
+            # toward travel; this also points the vision wedge toward likely hunters.
+            sx = sy = 0.0
+            for ht, bearing, weight in self.audio_hints:
+                age = t - ht
+                w = weight * max(0.0, 1.0 - age / 2.0)
+                sx += math.cos(bearing) * w
+                sy += math.sin(bearing) * w
+            if math.hypot(sx, sy) > 1.0:
+                yaw = math.atan2(sy, sx)
+            elif mx != 0.0 or my != 0.0:
+                yaw = math.atan2(my, mx) + 1.15 * math.sin(t * 1.3)
+            else:
+                yaw = my_aim[0] + 0.35
         elif mx != 0.0 or my != 0.0:
             yaw = math.atan2(my, mx) + 1.15 * math.sin(t * 1.3)
         else:
@@ -2350,9 +2393,10 @@ class Brain:
                     v = max(v, 150.0)
                 consider("pickup", pid, pos, v)
         cube_v = 25.0 if float(me.get("cubes", 0)) >= self.stat_cap else 75.0
-        for cid, (pos, seen) in self.cubes_mem.items():
-            if hyp(pos[0] - px, pos[1] - py) < 105.0:
-                consider("cube", cid, pos, cube_v)
+        if self.giddy_cube_pursuit(float(me.get("cubes", 0))):
+            for cid, (pos, seen) in self.cubes_mem.items():
+                if hyp(pos[0] - px, pos[1] - py) < 105.0:
+                    consider("cube", cid, pos, cube_v)
         if hpf > 0.5 and not danger and now < 1e9:
             for cid, (pos, chp, seen) in self.crates.items():
                 if hyp(pos[0] - px, pos[1] - py) < 150.0:
