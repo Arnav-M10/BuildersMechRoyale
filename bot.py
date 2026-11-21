@@ -53,6 +53,7 @@ P = {
     "gtol": False,        # gun fires on its own lead solution with TTUN tolerance 1.2*atan(2.2*scale/d)
     "precharge": False,   # start a laser charge on a target within 60 m even without line of sight
     "wdist": False,       # with want_d: lightning 30 m, laser want_d, gun-only 70 m; >=70 m if outnumbered or vs lightning
+    "upg": "default",     # upgrade order: "default", "econ" (TTUN), "inv" (Team Inventors)
 }
 # offline tuning only: the simulator may override knobs through MF_P (never set in matches)
 if os.environ.get("MF_P"):
@@ -140,6 +141,12 @@ def in_safe_zone(brain, obs, px, py, t):
     return hyp(px - cx, py - cy) < cr - 10.0
 
 
+UPGRADE_RANK_INV = [  # Team Inventors' order (5.15 real)
+    "plating", "armor", "laser_damage", "gun_damage", "nanites", "laser_charge", "gun_rate",
+    "lightning_efficiency", "servos", "gun_velocity", "gyros", "gun_mag", "lightning_chain",
+    "reactor", "lightning_range", "capacitor", "mortar_reload", "mortar_splash", "mortar_velocity",
+    "sensors", "jets", "laser_pierce",
+]
 UPGRADE_RANK_ECON = [  # TTUN's exact order
     "armor", "plating", "nanites", "lightning_efficiency", "laser_damage", "laser_charge", "gun_damage", "gun_rate",
     "lightning_range", "lightning_chain", "gyros", "servos", "gun_mag", "capacitor", "reactor", "jets", "gun_velocity",
@@ -411,7 +418,8 @@ class Brain:
         best, bi = 1e9, 0
         for i, c in enumerate(ch):
             cid = c.get("id")
-            rank = UPGRADE_RANK_ECON if P["econ"] else UPGRADE_RANK
+            rank = UPGRADE_RANK_ECON if (P["econ"] or P["upg"] == "econ") else (
+                UPGRADE_RANK_INV if P["upg"] == "inv" else UPGRADE_RANK)
             r = rank.index(cid) if cid in rank else 50
             if r < best:
                 best, bi = r, i
