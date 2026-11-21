@@ -44,10 +44,10 @@ P = {
     "race_margin": 0.8,   # leave when ttd < ttk * margin
     "race_ttd": 6.0,      # ...and ttd below this many seconds
     "cover_max": 35.0,    # race mode: only dash to cover this close; else fight while strafing
-    "berserk": False,     # never retreat from a fight (practice hunters share vision; running loses)
-    "want_d": 0.0,        # >0: hold this fight distance (smooth radial), instead of weapon bands
-    "tsel": False,        # target = lowest hp * (1 + dist/120) among visible
-    "fightloot": False,   # mid-fight: scoop cubes <30 m, fetch a better weapon <200 m, take drops
+    "berserk": True,      # never retreat from a fight (practice hunters share vision; running loses)
+    "want_d": 110.0,        # >0: hold this fight distance (smooth radial), instead of weapon bands
+    "tsel": True,         # target = lowest hp * (1 + dist/120) among visible
+    "fightloot": True,    # mid-fight: scoop cubes <30 m, fetch a better weapon <200 m, take drops
 }
 # offline tuning only: the simulator may override knobs through MF_P (never set in matches)
 if os.environ.get("MF_P"):
