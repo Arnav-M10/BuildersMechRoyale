@@ -164,3 +164,4 @@ Final config pooled: 12.2 pts/match over 16 live matches.
 | Sat 7:57 AM (Mac) | `b7c0092` (s2G) | salt 2 + full FFA package + review fixes: expect exactly 5.29, then re-pick | **5.29 exactly → PICKED as final entry** |
 Live smoke test of s2G running (16 matches, rooms 2 and 5).
 Fixed-code draws (use these, not s14F-s17F): see exp/s18G..s23G branches.
+s2G live smoke (16 matches, no errors): 1,2,2,4,1,10,4,15,2,5,1,2,8,3,2,5 → 11.8 pts/match (consistent with 12.2). Pick stands.
