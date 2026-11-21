@@ -45,6 +45,10 @@ P = {
     "g_focus": False,     # select the lowest estimated TTK, including rear-arc opportunities
     "g_late_hold": False, # stage at reachable cover in the next circle and fight locally
     "g_killloot": False,  # after a safe confirmed kill, collect its dropped cube pile
+    "g_lure_npc": False, # kite a pursuing hunter through a drone's home aggro/LOS envelope
+    "g_zone_trap": False, # stage just inside the next circle on the far side from recent hunters
+    "g_choke": False,    # use cover with a firing lane on one hunter and occlusion to the rest
+    "g_drop_bait": False, # prioritize a visible enemy during a supply-drop capture
     "chase": True,        # push toward a target we cannot see when healthy
     "retreat_hp": 0.38,   # break line of sight below this HP fraction
     "laser_band": (50.0, 120.0),
@@ -286,6 +290,10 @@ class Brain:
         self.giddy_stick_at = -99.0
         self.giddy_late_anchor = None
         self.giddy_late_search_at = -99.0
+        self.giddy_zone_trap_anchor = None
+        self.giddy_zone_trap_search_at = -99.0
+        self.giddy_choke_anchor = None
+        self.giddy_choke_search_at = -99.0
         self.strafe = 1.0
         self.strafe_until = 0.0
         self.path = None
@@ -413,6 +421,15 @@ class Brain:
             if old is not None and 0.07 <= t - old["seen"] <= 0.13:
                 rec["pvel"] = old["vel"]
             if rec["kind"] == "npc":
+                # mechfight/1 does not expose a drone's home. Its first early sighting
+                # is the best conservative proxy; only NPCs first seen near match start
+                # are eligible for the optional lure policy.
+                if old is not None and old.get("home") is not None:
+                    rec["home"] = old["home"]
+                    rec["home_confident"] = bool(old.get("home_confident"))
+                else:
+                    rec["home"] = list(rec["pos"])
+                    rec["home_confident"] = t <= 40.0
                 self.npcs[mid] = rec
             else:
                 seen_mechs.add(mid)
@@ -759,11 +776,23 @@ class Brain:
         avoid = None
         current_target_id = self.target_id
         late = float(zone_obs_next_r(obs)) <= 70.0 or int(obs.get("alive") or 16) <= 3
+        drop_holders = {}
+        if core_giddy and P.get("g_drop_bait", False):
+            for dr in obs.get("drops") or []:
+                holder, pos = dr.get("holder"), dr.get("pos")
+                if (holder is None or holder == me.get("id") or not pos or
+                        float(dr.get("progress") or 0.0) <= 0.05):
+                    continue
+                drop_holders[holder] = (pos, float(dr.get("radius") or 8.0))
         for e in tlist:
             d = e["dist"]
             ehp = e.get("hp") or 1400.0
+            held_drop = drop_holders.get(e["id"])
+            e["drop_capture"] = bool(held_drop and
+                hyp(e["pos"][0] - float(held_drop[0][0]), e["pos"][1] - float(held_drop[0][1])) <= held_drop[1] + 4.0)
             if core_giddy:
-                e["engage"] = late or (early_hunt and e["los"]) or self.engageable(e, px, py, t, vx, vy)
+                e["engage"] = (late or (early_hunt and e["los"]) or self.engageable(e, px, py, t, vx, vy)
+                               or (P.get("g_drop_bait", False) and e["drop_capture"]))
             if ffa_active and not self.ffa_engageable(e, t, alive, hpf, current_target_id):
                 if avoid is None or d < avoid["dist"]:
                     avoid = e
@@ -800,6 +829,10 @@ class Brain:
                 e["closing"] = closing
                 if closing > 3.0:
                     s -= 15.0
+                if P.get("g_drop_bait", False) and e["drop_capture"]:
+                    # A holder is committed to the 4 s ring and is a particularly
+                    # valuable, predictable target; it also loses capture on contest.
+                    s -= 320.0
                 if s < best:
                     best, target = s, e
                 continue
@@ -1111,6 +1144,9 @@ class Brain:
                                                   target, tlist, threats, visible_threats,
                                                   zx, zy, zr, lx, ly, lr, nx_, ny_, nr, ss, walk,
                                                   laser_charge > 0, farm, avoid)
+        if (core_giddy and P.get("g_drop_bait", False) and target is not None and
+                target.get("drop_capture") and label.startswith("fight")):
+            label = "drop-bait-fight"
         mx, my = move
         n = hyp(mx, my)
         if n > 1.0:
@@ -1433,6 +1469,12 @@ class Brain:
             dropheal_mode = (self.giddy_retreat or hpf < 0.6) and not finishing
             dropheal_goal = (self.giddy_dropheal_goal(obs, px, py, walk, visible_threats)
                              if P.get("g_dropheal", False) and dropheal_mode else None)
+            npc_lure_move = (self.giddy_npc_lure_move(px, py, threats, target, obs.get("zone") or {})
+                             if P.get("g_lure_npc", False) and not finishing else None)
+            zone_trap_goal = (self.giddy_zone_trap_goal(px, py, threats, obs.get("zone") or {})
+                              if P.get("g_zone_trap", False) and not zone_must else None)
+            choke_goal = (self.giddy_choke_goal(px, py, threats, target, obs.get("zone") or {})
+                          if P.get("g_choke", False) and not zone_must and not self.giddy_retreat else None)
             escape = (self.giddy_escape_move(px, py, pz, grounded, energy, me)
                       if P.get("g_escape", False) and self.geo is not None else None)
             if escape is not None:
@@ -1462,6 +1504,14 @@ class Brain:
                     mv = self.nav_to(px, py, dropheal_goal[0], dropheal_goal[1], allow_climb=True)
                     boost = energy > 45.0 and dd > 30.0
                     label = "dropheal"
+            elif zone_trap_goal is not None and hyp(zone_trap_goal[0] - px, zone_trap_goal[1] - py) > 7.0 and not finishing:
+                mv = self.nav_to(px, py, zone_trap_goal[0], zone_trap_goal[1], allow_climb=True)
+                boost = energy > 40.0 and hyp(zone_trap_goal[0] - px, zone_trap_goal[1] - py) > 30.0
+                label = "zone-trap"
+            elif npc_lure_move is not None and len(visible_threats) <= 2:
+                mv = npc_lure_move
+                boost = energy > 35.0 and not self.laser_charging_now
+                label = "npc-lure"
             elif self.giddy_retreat and not finishing and not late:
                 if self.cover_goal is None or t - self.cover_t > 0.4:
                     recent_threats = [e for e in threats if t - e.get("seen", -99.0) <= 2.5]
@@ -1502,7 +1552,7 @@ class Brain:
                             (e.get("los") and e.get("dist", 1e9) < 150.0))
                 finish_range = (20.0 if float(target.get("hp") or 1400.0) <
                                 0.38 * float(target.get("max_hp") or 1400.0) and hpf > 0.42 and crowd <= 2 else None)
-                hold_anchor = self.giddy_late_anchor if late_anchor_active else None
+                hold_anchor = zone_trap_goal or choke_goal or (self.giddy_late_anchor if late_anchor_active else None)
                 mv = self.giddy_fight_move(t, px, py, kinds, target, energy, tlist, want_los,
                                            finish_range, hold_anchor)
                 if lit is not None and d > 50.0 and energy > 55.0 and want_los > 0.0:
@@ -1520,9 +1570,29 @@ class Brain:
                     label = "fight:cube"
                 else:
                     label = "fight"
+                if zone_trap_goal is not None:
+                    label = "zone-trap-fight"
+                elif choke_goal is not None:
+                    label = "choke-fight"
             elif zone_should and zdist > 2.0:
                 mv = self.nav_to(px, py, gx, gy, allow_climb=True)
                 label = "zone"
+            elif zone_trap_goal is not None:
+                ax, ay = zone_trap_goal
+                if hyp(ax - px, ay - py) > 2.0:
+                    mv = self.nav_to(px, py, ax, ay, allow_climb=True)
+                    boost = energy > 40.0 and hyp(ax - px, ay - py) > 30.0
+                    label = "zone-trap"
+                else:
+                    mv, label = (0.0, 0.0), "zone-trap-hold"
+            elif choke_goal is not None:
+                ax, ay = choke_goal
+                if hyp(ax - px, ay - py) > 2.0:
+                    mv = self.nav_to(px, py, ax, ay, allow_climb=True)
+                    boost = energy > 40.0 and hyp(ax - px, ay - py) > 30.0
+                    label = "choke-go"
+                else:
+                    mv, label = (0.0, 0.0), "choke-hold"
             elif late_anchor_active:
                 ax, ay = self.giddy_late_anchor
                 ad = hyp(ax - px, ay - py)
@@ -2159,6 +2229,189 @@ class Brain:
         if not self.geo.free(goal[0], goal[1]):
             return None
         return goal
+
+    def giddy_npc_lure_move(self, px, py, threats, target, zone):
+        """Kite a pursuing hunter across a drone's real aggro lane, staying outside 45 m."""
+        if self.geo is None or self.t - self.giddy_npc_hurt < 12.0:
+            return None
+        candidates = []
+        if target is not None and target.get("kind", "mech") == "mech":
+            candidates.append(target)
+        for e in threats:
+            if e.get("kind", "mech") != "mech" or e.get("id") == (target or {}).get("id"):
+                continue
+            age = self.t - e.get("seen", -99.0)
+            if age <= 5.0 and self.t - self.attacked_by.get(e["id"], -99.0) <= 7.0:
+                candidates.append(e)
+        if not candidates:
+            return None
+        # One extra step outward keeps the lure line clear while preserving zone safety.
+        cx, cy, cr = self.zone_at(zone, self.t)
+        nc = zone.get("next_center") or [cx, cy]
+        nr = float(zone.get("next_radius", cr))
+        for n in self.npcs.values():
+            home = n.get("home")
+            if (not n.get("home_confident") or not home or self.t - n.get("seen", -99.0) > 4.0 or
+                    n.get("hp") is not None and float(n["hp"]) <= 0.0):
+                continue
+            hx, hy = float(home[0]), float(home[1])
+            nx, ny, nz = (float(n["pos"][0]), float(n["pos"][1]), float(n["pos"][2]))
+            if hyp(nx - hx, ny - hy) > float(self.npc_cfg.get("leash", 30.0)) + 5.0:
+                continue
+            ux, uy = unit(px - hx, py - hy)
+            my_home_d = hyp(px - hx, py - hy)
+            # Drone aggro is 45 m from the current drone position; keep a wide buffer.
+            if my_home_d < 82.0 or hyp(px - nx, py - ny) < 76.0:
+                continue
+            goalx, goaly = px + ux * 22.0, py + uy * 22.0
+            if (hyp(goalx - cx, goaly - cy) > cr - 5.0 or
+                    hyp(goalx - float(nc[0]), goaly - float(nc[1])) > nr - 7.0):
+                continue
+            for e in candidates:
+                age = self.t - e.get("seen", -99.0)
+                if age > 1.0 and self.t - self.attacked_by.get(e["id"], -99.0) > 5.0:
+                    continue
+                ex, ey = float(e["pos"][0]), float(e["pos"][1])
+                # We need the drone between the pursuer and us. The direct chase segment
+                # must cross the drone's 45 m response radius with unobstructed LOS.
+                evx, evy = unit(ex - hx, ey - hy)
+                if evx * ux + evy * uy > -0.15:
+                    continue
+                sx, sy = px - ex, py - ey
+                den = sx * sx + sy * sy
+                if den < 1e-6:
+                    continue
+                f = clamp(((nx - ex) * sx + (ny - ey) * sy) / den, 0.0, 1.0)
+                qx, qy = ex + f * sx, ey + f * sy
+                if hyp(qx - nx, qy - ny) > float(self.npc_cfg.get("aggro_range", 45.0)) - 3.0:
+                    continue
+                qz = self.geo.ground(qx, qy) + 4.5
+                if not self.geo.los(nx, ny, nz + 2.0, qx, qy, qz, step=1.5):
+                    continue
+                return (ux, uy)
+        return None
+
+    def giddy_zone_trap_goal(self, px, py, threats, zone):
+        """Stage just inside the upcoming circle, opposite the recent hunter approach."""
+        if self.geo is None:
+            self.giddy_zone_trap_anchor = None
+            return None
+        now = self.t
+        ss = float(zone.get("shrink_start", 1e9))
+        se = float(zone.get("shrink_end", ss))
+        if now < ss - 28.0 or now > se + 8.0:
+            self.giddy_zone_trap_anchor = None
+            return None
+        nc = zone.get("next_center") or zone.get("center") or [px, py]
+        nx, ny = float(nc[0]), float(nc[1])
+        nr = float(zone.get("next_radius", zone.get("radius", 1e9)))
+        _, _, cr = self.zone_at(zone, now)
+        if nr >= cr - 2.0 or nr < 12.0:
+            return None
+        anchor = self.giddy_zone_trap_anchor
+        if anchor is not None and hyp(anchor[0] - nx, anchor[1] - ny) <= nr - 8.0:
+            if now - self.giddy_zone_trap_search_at < 5.0:
+                return anchor
+        recent = [e for e in threats if e.get("kind", "mech") == "mech" and
+                  now - e.get("seen", -99.0) <= 8.0 and hyp(e["pos"][0] - px, e["pos"][1] - py) < 260.0]
+        recent.sort(key=lambda e: hyp(e["pos"][0] - px, e["pos"][1] - py))
+        recent = recent[:4]
+        if not recent:
+            return anchor
+        sx = sy = 0.0
+        for e in recent:
+            dx, dy = unit(float(e["pos"][0]) - nx, float(e["pos"][1]) - ny)
+            sx += dx
+            sy += dy
+        ux, uy = unit(sx, sy)
+        if abs(ux) + abs(uy) < 0.01:
+            return anchor
+        inset = min(10.0, nr * 0.25)
+        bx, by = nx - ux * max(0.0, nr - inset), ny - uy * max(0.0, nr - inset)
+        pad = max(7.0, inset)
+        radius = min(34.0, max(18.0, nr * 0.12))
+        candidates = sorted(self.geo.cover_near(bx, by, radius),
+                            key=lambda p: (p[0] - bx) ** 2 + (p[1] - by) ** 2)[:90]
+        best, best_score = None, 1e18
+        for x, y in candidates:
+            if hyp(x - nx, y - ny) > nr - pad or not self.geo.free(x, y):
+                continue
+            if self.my_comp >= 0 and self.geo.comp_at(x, y) != self.my_comp:
+                continue
+            los_count = 0
+            z = self.geo.ground(x, y) + self.mech_height * 0.55
+            for e in recent[:3]:
+                ep = e["pos"]
+                if self.geo.los(float(ep[0]), float(ep[1]), float(ep[2]) + 8.0,
+                                x, y, z, step=2.0):
+                    los_count += 1
+            score = hyp(x - bx, y - by) + 13.0 * los_count + 0.12 * hyp(x - px, y - py)
+            if score < best_score:
+                best, best_score = (x, y), score
+        if best is None:
+            for comp in (self.my_comp, self.main_comp):
+                if comp is None or comp < 0:
+                    continue
+                q = self.geo.nearest_in_comp(bx, by, comp, maxr=32)
+                if q is not None and hyp(q[0] - nx, q[1] - ny) <= nr - pad:
+                    best = q
+                    break
+        self.giddy_zone_trap_search_at = now
+        self.giddy_zone_trap_anchor = best
+        return best
+
+    def giddy_choke_goal(self, px, py, threats, target, zone):
+        """Find a reachable cover edge with a lane to one hunter and cover from others."""
+        if self.geo is None:
+            self.giddy_choke_anchor = None
+            return None
+        now = self.t
+        anchor = self.giddy_choke_anchor
+        nc = zone.get("next_center") or zone.get("center") or [px, py]
+        nx, ny = float(nc[0]), float(nc[1])
+        nr = float(zone.get("next_radius", zone.get("radius", 1e9)))
+        if anchor is not None and hyp(anchor[0] - nx, anchor[1] - ny) <= nr - 8.0:
+            if now - self.giddy_choke_search_at < 6.0:
+                return anchor
+        known = {}
+        for e in threats:
+            if e.get("kind", "mech") == "mech" and now - e.get("seen", -99.0) <= 5.0:
+                known[e["id"]] = e
+        if target is not None and target.get("kind", "mech") == "mech":
+            known[target["id"]] = target
+        enemies = sorted(known.values(), key=lambda e: hyp(e["pos"][0] - px, e["pos"][1] - py))[:4]
+        if not enemies:
+            self.giddy_choke_anchor = None
+            return None
+        focus = target if target is not None and target.get("id") in known else enemies[0]
+        cands = sorted(self.geo.cover_near(px, py, 58.0),
+                       key=lambda p: (p[0] - px) ** 2 + (p[1] - py) ** 2)[:100]
+        best, best_score = None, 1e18
+        for x, y in cands:
+            d = hyp(x - px, y - py)
+            if d < 4.0 or d > 58.0 or hyp(x - nx, y - ny) > nr - 8.0 or not self.geo.free(x, y):
+                continue
+            if self.my_comp >= 0 and self.geo.comp_at(x, y) != self.my_comp:
+                continue
+            z = self.geo.ground(x, y) + self.muzzle_h
+            visible = []
+            for e in enemies:
+                ep = e["pos"]
+                scale = 1.0 + self.size_per_cube * float(e.get("cubes") or 0)
+                ez = float(ep[2]) + 4.5 * scale
+                if self.geo.los(x, y, z, float(ep[0]), float(ep[1]), ez, step=2.0,
+                                skip_end=2.5 * scale):
+                    visible.append(e["id"])
+            if focus["id"] not in visible:
+                continue
+            spill = max(0, len(visible) - 1)
+            score = d + 28.0 * spill - 0.15 * min(120.0, hyp(focus["pos"][0] - x, focus["pos"][1] - y))
+            score += self.giddy_zone_penalty(zone, x, y, now)
+            if score < best_score:
+                best, best_score = (x, y), score
+        self.giddy_choke_search_at = now
+        self.giddy_choke_anchor = best
+        return best
 
     def giddy_cover_goal_bfs(self, px, py, threats, zone, hidden):
         """Bounded reachable-cell search matching brain.go:1475-1575."""
