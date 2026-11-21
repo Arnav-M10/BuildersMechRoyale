@@ -191,4 +191,6 @@ Fightboost verdict: 3 draws 4.73/4.90/4.79 (mean 4.81) vs base draws mean ≈4.9
 
 ## Giddy core (Codex port, P core="giddy") — merged into main, default off; fuzz/check/docker pass
 Draws: gd2 `2dddcb9`, gd40 `54789c0`, gd41 `d7ab4cf` (giddy core + salt + full FFA package).
-| Sat 10:02 AM (Mac) | `2dddcb9` (gd2) | giddy core + salt 2 + FFA pkg | scoring… |
+| Sat 10:02 AM (Mac) | `2dddcb9` (gd2) | giddy core + salt 2 + FFA pkg | 4.98 |
+| Sat 10:20 AM (Mac) | `54789c0` (gd40) | giddy core + salt 40 + FFA pkg | scoring… |
+Live FFA test running: giddy core (16) vs our core (8).
