@@ -24,7 +24,7 @@ BOT_NAME = "oval-warden"
 P = {
     "chase": True,        # push toward a target we cannot see when healthy
     "retreat_hp": 0.38,   # break line of sight below this HP fraction
-    "laser_band": (70.0, 165.0),
+    "laser_band": (50.0, 120.0),
 }
 
 try:
@@ -67,15 +67,30 @@ def unit(x, y):
     return x / d, y / d
 
 
-# weapon preference for the two slots (mortar invites laser cook-off and self-splash: never taken)
-W_VAL = {"laser": 5.0, "lightning": 4.6, "gun": 3.0, "mortar": 0.0}
+# weapon preference for the two slots: never drop the gun; laser > lightning (the organizers' strongest
+# house bots win with gun + laser); mortar invites laser cook-off and self-splash: never taken
+W_VAL = {"gun": 9.0, "laser": 5.0, "lightning": 4.0, "mortar": 0.0}
 
 UPGRADE_RANK = [
-    "armor", "plating", "laser_charge", "laser_damage", "gun_damage", "gun_rate",
-    "lightning_efficiency", "nanites", "lightning_range", "gun_mag", "servos", "gyros",
-    "gun_velocity", "sensors", "capacitor", "reactor", "jets", "lightning_chain", "laser_pierce",
+    "plating", "gun_damage", "armor", "gun_mag", "gun_rate", "nanites", "laser_damage",
+    "laser_charge", "gun_velocity", "lightning_efficiency", "servos", "gyros", "lightning_range",
+    "sensors", "capacitor", "reactor", "jets", "lightning_chain", "laser_pierce",
     "mortar_reload", "mortar_velocity", "mortar_splash",
 ]
+
+
+def lead_vel(v, pv, T):
+    """Effective horizontal velocity for leading a shot T seconds ahead. Fitted on 62k samples of
+    live house-bot motion: jukes keep turning, so extrapolate the last 0.1 s acceleration
+    (within 2.5 m of truth: 94% vs 89% for constant velocity at T=0.3 s; 85% vs 81% at 0.4 s)."""
+    if pv is None or T > 0.65:
+        k = 1.0 if pv is None else 0.9
+        return v[0] * k, v[1] * k
+    if T <= 0.5:
+        a, b = 1.5, -0.62
+    else:
+        a, b = 1.37, -0.56
+    return a * v[0] + b * pv[0], a * v[1] + b * pv[1]
 
 
 class Brain:
@@ -210,6 +225,9 @@ class Brain:
                 "weapons": list(m.get("weapons") or []), "charging": bool(m.get("charging")),
                 "cubes": m.get("cubes") or 0, "seen": t, "kind": m.get("kind", "mech"),
             }
+            old = self.enemies.get(mid) if rec["kind"] != "npc" else self.npcs.get(mid)
+            if old is not None and 0.0 < t - old["seen"] <= 0.16:
+                rec["pvel"] = old["vel"]
             if rec["kind"] == "npc":
                 self.npcs[mid] = rec
             else:
@@ -478,6 +496,7 @@ class Brain:
                 com = (sp[0], sp[1], sp[2] + 1.2)
                 rad = 1.4
             svel = shoot.get("vel") or [0.0, 0.0, 0.0]
+            pvel = shoot.get("pvel")
             if kind == "mech":
                 los_ok = shoot["los"]
             else:
@@ -497,7 +516,8 @@ class Brain:
                 tp = com
                 for _ in range(3):
                     vzl = clamp(svel[2] * tlead, -3.0, 3.0)
-                    tp = (com[0] + svel[0] * tlead, com[1] + svel[1] * tlead, com[2] + vzl)
+                    ex_, ey_ = lead_vel(svel, pvel, tlead)
+                    tp = (com[0] + ex_ * tlead, com[1] + ey_ * tlead, com[2] + vzl)
                     dd = math.sqrt((tp[0] - px) ** 2 + (tp[1] - py) ** 2 + (tp[2] - mz) ** 2)
                     tlead = dd / gspeed + 0.05
             hd = hyp(tp[0] - px, tp[1] - py)
