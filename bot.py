@@ -57,7 +57,7 @@ P = {
     "want_laser": 0.0,    # >0: hold this distance instead of want_d while carrying a laser
     "selfcomp": False,    # aim from where our muzzle will be (own velocity x 0.075 s); travel from the 3 m spawn point
     "duck": False,        # gun-only and reloading: step to a spot within ~12 m out of the target's sight
-    "select": False,      # engage only close/attacking/approaching/weak/aiming mechs, or late (giddygiddyboy rules)
+    "select": True,       # engage only close/attacking/approaching/weak/aiming mechs, or late (giddygiddyboy rules)
 }
 # offline tuning only: the simulator may override knobs through MF_P (never set in matches)
 if os.environ.get("MF_P"):
