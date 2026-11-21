@@ -173,3 +173,4 @@ Live test running: ffa_econ (FFA-only farming; 16 matches) vs final config (8).
 - econ (16): 2,2,4,1,1,2,4,2,8,8,10,1,6,5,6,1 → 12.1
 - final config (8): 7,15,1,2,1,2,4,5 → 11.4; pooled final config over 40 live matches = 11.9
 Verdict: neutral within noise; final config stays s2G (no farming). FFA tuning is done; the rest of the night = salt draws to raise the practice score above 5.29.
+| Sat 8:54 AM (Mac) | `602893e` (s20G) | salt 20 + full FFA package (fixed) | scoring… |
