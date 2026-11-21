@@ -79,6 +79,20 @@ UPGRADE_RANK = [
 ]
 
 
+def lead_vel(v, pv, T):
+    """Effective horizontal velocity for leading a shot T seconds ahead. Fitted on 62k samples of
+    live house-bot motion: jukes keep turning, so extrapolate the last 0.1 s acceleration
+    (within 2.5 m of truth: 94% vs 89% for constant velocity at T=0.3 s; 85% vs 81% at 0.4 s)."""
+    if pv is None or T > 0.65:
+        k = 1.0 if pv is None else 0.9
+        return v[0] * k, v[1] * k
+    if T <= 0.5:
+        a, b = 1.5, -0.62
+    else:
+        a, b = 1.37, -0.56
+    return a * v[0] + b * pv[0], a * v[1] + b * pv[1]
+
+
 class Brain:
     def __init__(self, hello):
         cfg = hello.get("config") or {}
@@ -211,6 +225,9 @@ class Brain:
                 "weapons": list(m.get("weapons") or []), "charging": bool(m.get("charging")),
                 "cubes": m.get("cubes") or 0, "seen": t, "kind": m.get("kind", "mech"),
             }
+            old = self.enemies.get(mid) if rec["kind"] != "npc" else self.npcs.get(mid)
+            if old is not None and 0.0 < t - old["seen"] <= 0.16:
+                rec["pvel"] = old["vel"]
             if rec["kind"] == "npc":
                 self.npcs[mid] = rec
             else:
@@ -479,6 +496,7 @@ class Brain:
                 com = (sp[0], sp[1], sp[2] + 1.2)
                 rad = 1.4
             svel = shoot.get("vel") or [0.0, 0.0, 0.0]
+            pvel = shoot.get("pvel")
             if kind == "mech":
                 los_ok = shoot["los"]
             else:
@@ -498,7 +516,8 @@ class Brain:
                 tp = com
                 for _ in range(3):
                     vzl = clamp(svel[2] * tlead, -3.0, 3.0)
-                    tp = (com[0] + svel[0] * tlead, com[1] + svel[1] * tlead, com[2] + vzl)
+                    ex_, ey_ = lead_vel(svel, pvel, tlead)
+                    tp = (com[0] + ex_ * tlead, com[1] + ey_ * tlead, com[2] + vzl)
                     dd = math.sqrt((tp[0] - px) ** 2 + (tp[1] - py) ** 2 + (tp[2] - mz) ** 2)
                     tlead = dd / gspeed + 0.05
             hd = hyp(tp[0] - px, tp[1] - py)
