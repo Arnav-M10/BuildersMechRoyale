@@ -57,6 +57,16 @@ def load_contract(real_config_path=None):
     return hello
 
 
+def _intify(x):
+    if isinstance(x, float):
+        return int(x) if x.is_integer() and abs(x) < 1e15 else x
+    if isinstance(x, dict):
+        return {k: _intify(v) for k, v in x.items()}
+    if isinstance(x, list):
+        return [_intify(v) for v in x]
+    return x
+
+
 class BotProcess:
     def __init__(self, cmd, slot, hello, schema, tick_budget, child_env=None,
                  container_name=None, async_writes=False):
@@ -109,6 +119,15 @@ class BotProcess:
     def _write(self, msg):
         if self.closed or self.proc.poll() is not None:
             return False
+        try:
+            # The real server writes integral numbers without ".0" (e.g. "cubes": 0); typed
+            # bots (Go ints) reject 0.0, so normalise integral floats like the server does.
+            data = (json.dumps(_intify(msg), separators=(",", ":"), allow_nan=False) + "\n").encode("utf-8")
+            self.proc.stdin.write(data)
+            self.proc.stdin.flush()
+            return True
+        except (BrokenPipeError, OSError, ValueError):
+            return False
 
     def _write_loop(self):
         while True:
@@ -124,13 +143,6 @@ class BotProcess:
                 except OSError:
                     pass
                 return
-        try:
-            data = (json.dumps(msg, separators=(",", ":"), allow_nan=False) + "\n").encode("utf-8")
-            self.proc.stdin.write(data)
-            self.proc.stdin.flush()
-            return True
-        except (BrokenPipeError, OSError, ValueError):
-            return False
 
     def start(self):
         start = time.monotonic()
