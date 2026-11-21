@@ -68,9 +68,13 @@ Built as knobs: `selfcomp` (muzzle compensation). Next: reload-duck.
 | Sat 3:22 AM (Mac) | `d8eeec4` (exp/v11) | v6 + 145 m with a laser | 5.13 (= v5; neutral) |
 | Sat 3:55 AM (Mac) | `d202d4d` (exp/v13) | v6 + selective engagement + giddygiddyboy target scoring/stickiness (Codex round-3 #1) | 4.79 (worse) |
 | Sat 4:02 AM (Mac) | `ad0a8b6` (exp/v14) | v6 + giddy-style local fight-position search (Codex round-3 #3) | 4.98 (neutral) |
-| Sat 4:20 AM (Mac) | `7f90145` (exp/v12) | v6 + aim from the muzzle's position at shot time | scoring… |
+| Sat 4:20 AM (Mac) | `7f90145` (exp/v12) | v6 + aim from the muzzle's position at shot time | 4.94 (worse) |
 
 ### Codex round 3
 Explained the stall: v5 is a coherent policy, and single-knob edits add costs without changing the plan (v10's slow strafe makes us predictable; v8's loose gate wastes shots while slewing; econ pulls us out of position). Ranked next: (1) selective engagement + giddy target scoring/stickiness, (2) giddy's lose-rule/crowd retreat (we disagree: berserk was our biggest real gain), (3) a 16-candidate local fight-position search, (4) laser juke with a zone guard. It would hold selfcomp/duck/killloot/precharge/wdist as below the 0.2 bar.
 
 Pattern: giddygiddyboy's pieces (select, its tolerance via gtol) don't transplant alone; v5 remains the best at 5.13. Max mode (4:33) plan: run the sim on every variant already scored for real, to measure sim-vs-real agreement before trusting it for screening.
+
+## Max mode (from 4:30 AM Mac)
+- Calibration sweep (12 workers, seeds 15000×96): every variant already scored for real, plus duck/killloot/precharge/juke, to measure sim-vs-real agreement.
+- Codex resumed on the FFA layer.
