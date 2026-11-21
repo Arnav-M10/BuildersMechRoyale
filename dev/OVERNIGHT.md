@@ -279,3 +279,7 @@ Go practice draws: 6.17, 5.92, 5.42 (+5.85 param) → mean ≈5.84; our 6.17 was
 Go draws mean ≈5.69 (6.17/5.92/5.42/5.23). Salt branches gg3s9..40 pushed (list in scratchpad/gg3_salts.txt).
 | Sat 4:05 PM (Mac) | `cfe3279` (gg3s4) | go-giddy3 + salt 4 | scoring… |
 Clone-sim analysis: 59% of ALL deaths are zone deaths (median 218 s); Go subject zone-died 24/48. But REAL live Go matches: 0 zone deaths in 16 → sim zone is wrong. Codex dispatched to fix the sim zone vs real recordings before any FFA tuning.
+| Sat 4:05 PM | gg3s4 | 5.75 | ; gg3s5 5.71 ; gg3s6 scoring. Go draws: 6.17,5.92,5.42,5.23,5.75,5.71 → mean 5.70 (6.17 = lucky). NEW RULE: one submission scoring at a time per team.
+Zone: sim engine matches real to 0.004 m (Codex). Live rooms use a 240 s config; official check/practice config is 480 s. Under 480 s, Go clones die to zone massively.
+FFA vs 15 Go clones (480 s, 48 m): Go subject 7.31 (3 wins, 24 zone deaths); our Python ours+FFA pkg 7.15 (13 WINS, 2 zone deaths).
+Cause found in Go FFA Ghost mode: walks 'home' at ~40% speed; zone deadline margin only 3/14 s. Variants (FFA-only changes; practice squad core untouched): ffa-zs `30d6cd5` (full-speed home + margins 15/40 s), ffa-ng `582ff88` (Ghost off), ffa-zsng `bf45e1e` (both). Testing vs 15 clones.
