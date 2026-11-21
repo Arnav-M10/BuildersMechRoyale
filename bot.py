@@ -31,7 +31,7 @@ P = {
     "regen_hp": 0.85,
     "w_laser": 5.0,
     "w_lightning": 4.0,
-    "strafe": (0.3, 0.95),  # seconds between strafe flips
+    "strafe": (1.0, 2.6),   # seconds between strafe flips
     "tol": 0.75,          # fire when predicted miss < tol * target radius
     "laser_dodge": False,  # boosted direction reversal timed for an enemy laser release
     "juke_at": 0.5,       # seconds after we first see the charge
