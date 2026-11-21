@@ -156,7 +156,7 @@ type Params struct {
 
 func DefaultParams() Params {
 	p := Params{RetreatHP: 0.38, RecoverHP: 0.8, GunRange: 85, LightRange: 28, LaserRange: 85, EngageDist: 60, FarmNPC: true, Explore: false,
-		Ghost: true, HomeExpo: 120, LootRadius: 90, CrateUntil: 150, UseDrops: false, Dodge: true, NoMortar: true,
+		Ghost: false, HomeExpo: 120, LootRadius: 90, CrateUntil: 150, UseDrops: false, Dodge: true, NoMortar: true,
 		Peek: true, LaserFirst: false, CrowdHide: true, Practice: true}
 
 	p.LaserFirst = true
@@ -683,8 +683,8 @@ func (b *Brain) step(o *Obs, act *Action) {
 	zdist := hyp(zgx-x, zgy-y)
 	tNeed := zdist*1.45/st.WalkSpeed + 4
 	deadline := b.zoneDeadline(z, x, y, 8)
-	zoneMust := !me.InZone || now+tNeed+3 >= deadline
-	zoneShould := now+tNeed+14 >= deadline
+	zoneMust := !me.InZone || now+tNeed+15 >= deadline
+	zoneShould := now+tNeed+40 >= deadline
 
 	escJump := false
 	switch {
@@ -832,7 +832,7 @@ func (b *Brain) step(o *Obs, act *Action) {
 
 			if hx, hy, ok := b.home(o); ok && hyp(hx-x, hy-y) > 3 {
 				mx, my = b.travel(me, hx, hy)
-				if !danger && now-b.lastHurt > 6 && !b.openOn {
+				if false && !danger && now-b.lastHurt > 6 && !b.openOn {
 					q := math.Min(1, 4.6/st.WalkSpeed)
 					mx, my = mx*q, my*q
 				}
