@@ -254,3 +254,6 @@ Calibration complete (sim 64 / real): ours 6.11/4.93, gs 6.41/4.96, gd 7.17/5.06
 
 ## USER DECISION (2:40 PM): "submit giddy's Go code just to be safe while improving our own bot to beat it".
 Branch exp/giddy-go `4712fc5`: giddygiddyboy's `mech/` package (latest copy we have, MIT, credited in LICENSE-giddygiddyboy + NOTICE.md) + our own cmd/bot/main.go wrapper (skip-to-newest obs, events carried forward). Docker check PASS (0 late, 0 dropped). Paced replay of the official stream: fires 36, moves 297/300. (Our sim gives it 0 kills — our sim's hello config lacks fields their code reads; irrelevant for the real server.) Tree 2.34 MB.
+| Sat 2:57 PM (Mac) | `4712fc5` (giddy-go) | giddygiddyboy Go bot (user's call, MIT credited) | scoring… |
+Kill-lever sim sweep (64 m, load ~110 so noisy): base 5.81, dmg 5.72, focus 5.56, hunt 4.44 (bad) — matches weak real results (gk 5.10, gka 5.08).
+Codex radical (sim 48 m): baseline 5.48, NPC lure 6.13 (+0.65, triggered 9/48), zone trap 4.83, choke 4.46, drop bait no-op. Merged default-off. Lure draws glu67 `e703baf`, glu68 `d196399` (docker PASS).
