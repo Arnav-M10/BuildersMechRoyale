@@ -209,5 +209,9 @@ Codex audit applied (dev/GIDDY_AUDIT.md): g_nav (path follower + isolated-region
 | Sat 11:55 AM (Mac) | `69b98f5` (gn44) | giddy v1 + nav/cover/stuck + salt 44 + FFA pkg | 5.21 |
 ### FFA live: gn (nav/cover/stuck, 16): 12,1,1,1,2,8,1,1,2,2,3,1,1,1,2,4 → 13.3; giddy v1 (8): 1,3,1,1,2,1,1,1 → 14.6. No errors; both strong (giddy core pooled FFA ≈12.8 over 40). Safe.
 gn (giddy v1 + nav/cover/stuck) 2 draws mean 5.16 — best strategy so far. More gn draws built.
-| Sat 12:03 PM (Mac) | `40396b8` (gn2) | gn + salt 2 + FFA pkg | scoring… |
+| Sat 12:03 PM (Mac) | `40396b8` (gn2) | gn + salt 2 + FFA pkg | 5.21 |
 Queue: gn45 `0cfda6d`, gn46 `2333e0b`, gn47 `798f661`, gn48 `51dd4d7`.
+
+## ALERT 12:20 PM (Mac): 273 teams; top-32 line now 5.54 (32nd ImagineLosing 5.54). We're 48th at 5.29.
+Qualifying uses the CHOSEN submission's practice score ("your chosen submission ... locks with its practice score"), so only switch the pick to something ≥ the current pick.
+gn (giddy + nav/cover/stuck) 3 draws 5.10/5.21/5.21 (mean 5.17, σ≈0.06) → salt luck can't reach 5.54; need a real +0.4.
