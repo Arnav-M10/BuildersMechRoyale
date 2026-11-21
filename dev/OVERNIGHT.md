@@ -226,7 +226,13 @@ Codex debate dispatched (12:57): new practice levers (facing/rear armor, sensor 
 gs (full structural port: clear/escape/laserpre/npcmem) 2 draws 5.08/4.83 (mean 4.96) < gn 5.15 → structural knobs stay OFF.
 Codex levers merged (dev/LEVERS.md): g_frontarc (face rear attackers / sound bearings), g_cube_guard (no size-only cube detours past cap). Draws gfc49 `73a3e24`, gfc50 `5e7fc87`, gfc51 `5fb323a` = gn + both levers (docker PASS).
 | Sat 1:22 PM (Mac) | `73a3e24` (gfc49) | gn + frontarc + cube_guard + salt 49 | 5.19 |
-| Sat 1:34 PM (Mac) | `5e7fc87` (gfc50) | gn + frontarc + cube_guard + salt 50 | scoring… |
+| Sat 1:34 PM (Mac) | `5e7fc87` (gfc50) | gn + frontarc + cube_guard + salt 50 | 5.27 |
 
 ## FOR THE USER (decision needed): giddygiddyboy's repo went private/deleted ~1:35 PM (Mac)
 Our best candidates use core="giddy", a Python re-implementation of their MIT-licensed decision logic made while the repo was public. I added NOTICE.md with attribution. I did NOT do a literal line-by-line translation (planned, then cancelled once the author withdrew the repo). Please decide whether you're comfortable entering a giddy-core build; s2G (5.29, our own core) is still the pick.
+
+## User awake (~1:35 PM): "drastic changes, find other repos, aim #1". Board: 282 teams, line 5.65, we're 53rd.
+gfc (gn + frontarc + cube_guard) 2 draws 5.19/5.27 (mean 5.23) — best mean so far.
+Repo scan: 190 repos / 156 READMEs in scratchpad/scan2. JishnuMadav/mech-royale (MIT, 5.85 official) lists its real experiments: supply-drop capture 5.10→5.46, laser charge-rounding fix →5.73, lethal partial release →5.81, critical-HP cover <25%→60% + no laser charging outside zone →5.85.
+NEW g_drops (supply drops = full HP + energy + 3 cubes; the giddy squad core ignored them): gdr60 `48eafe4`, gdr61 `e4c761b` = gfc + drops 400.
+Codex dispatched: mine all READMEs + g_dropheal / g_zonelaser / g_chargefix.
