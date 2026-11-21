@@ -24,7 +24,7 @@ BOT_NAME = "oval-warden"
 P = {
     "chase": True,        # push toward a target we cannot see when healthy
     "retreat_hp": 0.38,   # break line of sight below this HP fraction
-    "laser_band": (70.0, 165.0),
+    "laser_band": (50.0, 120.0),
 }
 
 try:
@@ -59,13 +59,14 @@ def unit(x, y):
     return x / d, y / d
 
 
-# weapon preference for the two slots (mortar invites laser cook-off and self-splash: never taken)
-W_VAL = {"laser": 5.0, "lightning": 4.6, "gun": 3.0, "mortar": 0.0}
+# weapon preference for the two slots: never drop the gun; laser > lightning (the organizers' strongest
+# house bots win with gun + laser); mortar invites laser cook-off and self-splash: never taken
+W_VAL = {"gun": 9.0, "laser": 5.0, "lightning": 4.0, "mortar": 0.0}
 
 UPGRADE_RANK = [
-    "armor", "plating", "laser_charge", "laser_damage", "gun_damage", "gun_rate",
-    "lightning_efficiency", "nanites", "lightning_range", "gun_mag", "servos", "gyros",
-    "gun_velocity", "sensors", "capacitor", "reactor", "jets", "lightning_chain", "laser_pierce",
+    "plating", "gun_damage", "armor", "gun_mag", "gun_rate", "nanites", "laser_damage",
+    "laser_charge", "gun_velocity", "lightning_efficiency", "servos", "gyros", "lightning_range",
+    "sensors", "capacitor", "reactor", "jets", "lightning_chain", "laser_pierce",
     "mortar_reload", "mortar_velocity", "mortar_splash",
 ]
 
