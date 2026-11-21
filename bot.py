@@ -20,6 +20,13 @@ PI = math.pi
 TAU = 2.0 * PI
 BOT_NAME = "oval-warden"
 
+# Strategy knobs (tuned by A/B submissions on the fixed practice seeds)
+P = {
+    "chase": True,        # push toward a target we cannot see when healthy
+    "retreat_hp": 0.38,   # break line of sight below this HP fraction
+    "laser_band": (70.0, 165.0),
+}
+
 try:
     import geo as geomod
 except Exception:  # pragma: no cover - the bot still plays without the map model
@@ -752,7 +759,7 @@ class Brain:
                 gx, gy = lx, ly
             zone_push = (gx, gy)
 
-        hp_low = hpf < 0.38
+        hp_low = hpf < P["retreat_hp"]
         fight = target is not None and (target["los"] or t - self.attacked_by.get(target["id"], -99) < 3.0
                                          or target["dist"] < 120)
 
@@ -857,7 +864,7 @@ class Brain:
         has_laser = "laser" in kinds
         has_lit = "lightning" in kinds
         if has_laser:
-            rmin, rmax = 70.0, 165.0
+            rmin, rmax = P["laser_band"]
         elif has_lit:
             rmin, rmax = 0.0, 32.0
         else:
@@ -874,7 +881,7 @@ class Brain:
             rmax = max(rmax, rmin + 40.0)
         if not e["los"]:
             # out of sight: push in when healthy, otherwise hold still and regen
-            if hpf > 0.6 and (hpf > (e.get("hp") or 1400) / max(1.0, e.get("max_hp") or 1400) - 0.1):
+            if P["chase"] and hpf > 0.6 and (hpf > (e.get("hp") or 1400) / max(1.0, e.get("max_hp") or 1400) - 0.1):
                 mv = self.nav_to(px, py, e["pos"][0], e["pos"][1])
                 return mv, False, "hunt"
             return (0.0, 0.0), False, "wait"
