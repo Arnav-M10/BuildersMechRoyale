@@ -1592,7 +1592,8 @@ class Brain:
         boost = energy > 55 and d > 60 and not has_lit
         if radial < 0 and d < rmin * 0.6 and energy > 30:
             boost = True
-        if P["fightboost"] > 0 and energy > P["fightboost"] and not self.laser_charging_now and (not has_lit or energy > 60):
+        if (P["fightboost"] > 0 and not self.ffa and energy > P["fightboost"] and not self.laser_charging_now
+                and (not has_lit or energy > 60)):  # practice only: it cost ~2 pts/match in live FFA
             boost = True
         return mv, boost, "fight%d" % int(d)
 
