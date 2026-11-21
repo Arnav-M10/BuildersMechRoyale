@@ -69,7 +69,7 @@ def unit(x, y):
 
 # weapon preference for the two slots: never drop the gun; laser > lightning (the organizers' strongest
 # house bots win with gun + laser); mortar invites laser cook-off and self-splash: never taken
-W_VAL = {"gun": 9.0, "laser": 5.0, "lightning": 4.0, "mortar": 0.0}
+W_VAL = {"gun": 9.0, "lightning": 5.0, "laser": 4.0, "mortar": 0.0}
 
 UPGRADE_RANK = [
     "plating", "gun_damage", "armor", "gun_mag", "gun_rate", "nanites", "laser_damage",
