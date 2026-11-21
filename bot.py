@@ -40,6 +40,10 @@ P = {
     "noflee": False,      # no cover found -> keep fighting instead of running across the open
     "ambush": False,      # gun only: break LOS beyond ambush_d and let the enemy come close
     "ambush_d": 100.0,
+    "race": False,        # disengage by the damage race (time-to-death vs time-to-kill), not HP alone
+    "race_margin": 0.8,   # leave when ttd < ttk * margin
+    "race_ttd": 6.0,      # ...and ttd below this many seconds
+    "cover_max": 35.0,    # race mode: only dash to cover this close; else fight while strafing
 }
 # offline tuning only: the simulator may override knobs through MF_P (never set in matches)
 if os.environ.get("MF_P"):
@@ -187,6 +191,8 @@ class Brain:
         self.stuck_log = []
         self.juke_key = None
         self.safe_circle = (0.0, 0.0, 1e6)
+        self.dmg_in = []
+        self.dmg_out = []
         self.juke_dir = 1.0
         self.cover_goal = None
         self.cover_t = -99.0
@@ -326,6 +332,8 @@ class Brain:
             et = ev.get("type")
             if et == "damaged":
                 self.last_hurt = t
+                if ev.get("by") is not None:
+                    self.dmg_in.append((t, float(ev.get("amount") or 0.0)))
                 by = ev.get("by")
                 if by is not None:
                     self.attacked_by[by] = t
@@ -334,6 +342,8 @@ class Brain:
                     self.hints.append((t, float(b), 3.0))
             elif et == "hit":
                 self.last_hit_dealt = t
+                if ev.get("target") is not None and ev.get("target") < 16:
+                    self.dmg_out.append((t, float(ev.get("amount") or 0.0)))
             elif et == "effect":
                 if ev.get("effect") == "short":
                     ls = (self.W.get("laser") or {}).get("short_s")
@@ -367,6 +377,8 @@ class Brain:
                 w *= 0.5
             self.hints.append((t - float(s.get("age", 0.0)), float(b), w))
         self.hints = [h for h in self.hints if t - h[0] < 3.0][-24:]
+        self.dmg_in = [d for d in self.dmg_in if t - d[0] <= 2.5]
+        self.dmg_out = [d for d in self.dmg_out if t - d[0] <= 3.0]
 
     # ----------------------------------------------------------------- upgrades
     def choose_upgrade(self, offer):
@@ -865,6 +877,16 @@ class Brain:
             zone_push = self.snap_goal(gx, gy, lx, ly, lr)
 
         hp_low = hpf < P["retreat_hp"]
+        if P["race"]:
+            hp_now = float(me.get("hp", 1.0))
+            rate_in = sum(a for _, a in self.dmg_in) / 2.5
+            rate_out = max(40.0, sum(a for _, a in self.dmg_out) / 3.0)
+            ttd = hp_now / rate_in if rate_in > 1.0 else 1e9
+            ehp = float(target.get("hp") or 1400.0) if target is not None else 1e9
+            ttk = ehp / rate_out
+            losing = ttd < ttk * P["race_margin"] and ttd < P["race_ttd"]
+            outnumbered = len(visible_threats) >= 2 and hpf < 0.6
+            hp_low = losing or outnumbered or (hpf < 0.2 and ttk > 2.0)
         if hp_low and P["commit"] and target is not None and len(visible_threats) <= 1:
             ehp = target.get("hp")
             if ehp is not None and float(ehp) <= float(me.get("hp", 0)) * P["commit_ratio"]:
@@ -884,8 +906,9 @@ class Brain:
             if self.cover_goal is None or t - self.cover_t > 1.2:
                 c = self.find_cover(px, py, threats, lx, ly, lr)
                 self.cover_t = t
-                if c is not None:
-                    self.cover_goal = c
+                if c is not None and P["race"] and hyp(c[0] - px, c[1] - py) > P["cover_max"]:
+                    c = None  # too far: a long run in the open is worse than fighting it out
+                self.cover_goal = c if (c is not None or P["race"]) else self.cover_goal
             if self.cover_goal is not None and hyp(self.cover_goal[0] - px, self.cover_goal[1] - py) > 1.5:
                 mv = self.nav_to(px, py, self.cover_goal[0], self.cover_goal[1])
                 boost = energy > 30
@@ -895,7 +918,7 @@ class Brain:
                 if self.cover_goal is not None:
                     mv = (0.0, 0.0)
                     label = "hide"
-                elif P["noflee"] and target is not None:
+                elif (P["noflee"] or P["race"]) and target is not None:
                     mv, boost, label = self.fight_move(t, px, py, kinds, target, hpf, energy, visible_threats, walk)
                     label = "stand " + label
                 else:
