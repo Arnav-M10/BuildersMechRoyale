@@ -278,3 +278,4 @@ Go practice draws: 6.17, 5.92, 5.42 (+5.85 param) → mean ≈5.84; our 6.17 was
 | Sat 3:57 PM (Mac) | `9f09d16` (gg3s3) | go-giddy3 + salt 3 | 5.23 |
 Go draws mean ≈5.69 (6.17/5.92/5.42/5.23). Salt branches gg3s9..40 pushed (list in scratchpad/gg3_salts.txt).
 | Sat 4:05 PM (Mac) | `cfe3279` (gg3s4) | go-giddy3 + salt 4 | scoring… |
+Clone-sim analysis: 59% of ALL deaths are zone deaths (median 218 s); Go subject zone-died 24/48. But REAL live Go matches: 0 zone deaths in 16 → sim zone is wrong. Codex dispatched to fix the sim zone vs real recordings before any FFA tuning.
