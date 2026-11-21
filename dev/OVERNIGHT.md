@@ -183,3 +183,5 @@ Testing `fightboost=40` on 3 salts: fb2 `6aec670` (paired with salt 2 = 5.29), f
 
 ## Re-think (9:20 AM Mac): single-draw tests are within ±0.25 noise, so select (4.79) / posearch (4.98) etc. were inconclusive, not failures. giddygiddyboy's whole practice core = 6.00 vs our ≈4.93.
 Codex dispatched to port giddy's full practice core as P["core"]="giddy" (faithful rules + numbers, our own code), to be judged on 3–4 draws.
+
+### FFA live: fightboost 40 (16): 15,5,1,3,11,2,2,2,5,2,2,16,1,11,16,11 → 9.4 vs final config (8): 1,1,6,13,5,1,8,1 → 11.5. Fightboost hurts FFA → made practice-only (disabled once FFA latches). Note: fb2/fb30/fb31 branches predate this gating; a winning fb draw must be rebuilt with gating + re-verified before picking.
