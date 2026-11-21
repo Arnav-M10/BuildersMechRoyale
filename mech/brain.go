@@ -165,10 +165,12 @@ func DefaultParams() Params {
 }
 
 func NewBrain(h *Hello, w *World) *Brain {
-	seed := int64(h.Seed) ^ int64(2*0x9E3779B1)
+	seed := int64(h.Seed)
 	if seed == 0 {
 		seed = int64(h.Slot) + 1
 	}
+	seed = seed*1000003 + 15838 // RNG salt
+
 	return &Brain{
 		W: w, Cfg: h.Config, Slot: h.Slot, rng: rand.New(rand.NewSource(seed)), P: DefaultParams(),
 		tracks: map[int]*Track{}, npcs: map[int]*Track{}, crates: map[int]*known{}, cubes: map[int]*known{},
