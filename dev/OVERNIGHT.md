@@ -158,4 +158,8 @@ Live round 4 running: F (final config) vs F+lurk to 120 s/7 alive vs F+ffa_juke 
 - F + lurk to 120 s/7: 2,2,7,1,1,4,15,1 → 11.9 (≈ same; keep 75 s/9)
 - F + ffa_juke: 4,10,11,14,1,9,2,2 → 9.4 (worse; juke stays off)
 Final config pooled: 12.2 pts/match over 16 live matches.
-| Sat 7:45 AM (Mac) | `5e5b798` (s13F) | salt 13 + full FFA package | scoring… |
+| Sat 7:45 AM (Mac) | `5e5b798` (s13F) | salt 13 + full FFA package | 4.88 |
+
+### Codex FFA code review → 3 fixes (FFA-only paths): target grace now from selection time (was renewing forever), lurk 25/30 m hysteresis, latched heal no longer overridden by hold/loot. Kept the 2-death latch (s2F proved it never latches on the practice seeds).
+| Sat 7:57 AM (Mac) | `b7c0092` (s2G) | salt 2 + full FFA package + review fixes: expect exactly 5.29, then re-pick | scoring… |
+Live smoke test of s2G running (16 matches, rooms 2 and 5).
