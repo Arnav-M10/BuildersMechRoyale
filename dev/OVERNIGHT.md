@@ -185,4 +185,6 @@ Testing `fightboost=40` on 3 salts: fb2 `6aec670` (paired with salt 2 = 5.29), f
 Codex dispatched to port giddy's full practice core as P["core"]="giddy" (faithful rules + numbers, our own code), to be judged on 3–4 draws.
 
 ### FFA live: fightboost 40 (16): 15,5,1,3,11,2,2,2,5,2,2,16,1,11,16,11 → 9.4 vs final config (8): 1,1,6,13,5,1,8,1 → 11.5. Fightboost hurts FFA → made practice-only (disabled once FFA latches). Note: fb2/fb30/fb31 branches predate this gating; a winning fb draw must be rebuilt with gating + re-verified before picking.
-| Sat 9:30 AM (Mac) | `fc4beba` (fb31) | fightboost 40 + salt 31 + FFA pkg | scoring… |
+| Sat 9:30 AM (Mac) | `fc4beba` (fb31) | fightboost 40 + salt 31 + FFA pkg | 4.79 |
+Fightboost verdict: 3 draws 4.73/4.90/4.79 (mean 4.81) vs base draws mean ≈4.93 → rejected (off by default).
+| Sat 9:54 AM (Mac) | `9bd5f39` (s21G) | salt 21 + full FFA package (fixed) | scoring… |
