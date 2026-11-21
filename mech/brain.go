@@ -1974,6 +1974,7 @@ func squadParams(p Params) Params {
 	p.HPw = 0.18
 	p.HPw = 0.21
 
+	p.HPw = 0.25
 	return p
 }
 
