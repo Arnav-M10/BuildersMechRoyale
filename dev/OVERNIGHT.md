@@ -33,14 +33,16 @@ Typical loss: a 130–160 m gun duel against the first hunter, then a flight acr
 |---|---|---|---|
 | Sat 2:55 AM | `2dfc546` (exp/v5) | berserk + 110 m + hp×dist targeting + mid-fight looting (sim: +1.02 ± 0.67 over base, 48 seeds) | **5.13** (from 3.81; above the 4.96 top-32 cutoff) |
 | Sat ~3:00 AM | `b7bb624` (main) | v5 + zone-forecast fix (server sends the current circle) + displacement stuck check | 5.10 (= v5 within noise; kept, it's correct) |
-| Sat ~3:05 AM | `bee838d` (exp/v7) | v5 + TTUN-style economy (sim +1.03 ± 0.47 vs v5) | scoring… |
+| Sat ~3:05 AM | `bee838d` (exp/v7) | v5 + TTUN-style economy (sim +1.03 ± 0.47 vs v5) | **4.56** (worse than 5.13: the sim overrates farming; econ stays off) |
 
 ## Sim sweeps since v5
 | Seeds | Variant (vs v5) | Result |
 |---|---|---|
 | 13000×96 | + econ | **+1.03 ± 0.47** |
 | 13000×96 | want_d 70 instead of 110 | **−0.91 ± 0.35** (long range matters) |
-| 14000×96 | v7 + killloot / gtol / precharge / wdist | running |
+| 14000×96 | v6 (main) + killloot / gtol / precharge / wdist (econ off) | running (4 workers) |
 
 ## Codex debate, round 2
 Codex diffed us against Inventors and TTUN and found: want_d overrode weapon ranges (making lightning useless at 110 m), tsel only ranked 6 targets, econ treated dead drones as alive, fight-loot chased stale cubes. All fixed or turned into knobs. Its #1 suggestion (gun-only 70 m) conflicts with the −0.91 result above; sent back for rebuttal. Codex is now building an FFA layer (detector, selective engagement, endgame hold) for qualifying and the final.
+
+**Lesson:** the sim misjudges economy-style changes (predicted +1.03, real −0.57). Real submissions decide anything that trades fighting for farming.
