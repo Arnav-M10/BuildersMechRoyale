@@ -35,6 +35,11 @@ P = {
     "tol": 0.75,          # fire when predicted miss < tol * target radius
     "laser_dodge": False,  # boosted direction reversal timed for an enemy laser release
     "juke_at": 0.5,       # seconds after we first see the charge
+    "commit": False,      # keep dueling a lone enemy whose HP <= ours * commit_ratio
+    "commit_ratio": 1.3,
+    "noflee": False,      # no cover found -> keep fighting instead of running across the open
+    "ambush": False,      # gun only: break LOS beyond ambush_d and let the enemy come close
+    "ambush_d": 100.0,
 }
 # offline tuning only: the simulator may override knobs through MF_P (never set in matches)
 if os.environ.get("MF_P"):
@@ -53,7 +58,7 @@ except Exception:  # pragma: no cover - the bot still plays without the map mode
 TRACE = None
 if os.environ.get("MF_TRACE"):
     try:
-        TRACE = open(os.environ["MF_TRACE"], "w")
+        TRACE = open(os.environ["MF_TRACE"].replace("%p", str(os.getpid())), "w")
     except Exception:
         TRACE = None
 
@@ -181,6 +186,7 @@ class Brain:
         self.stuck_dir = (0.0, 0.0)
         self.stuck_log = []
         self.juke_key = None
+        self.safe_circle = (0.0, 0.0, 1e6)
         self.juke_dir = 1.0
         self.cover_goal = None
         self.cover_t = -99.0
@@ -646,11 +652,12 @@ class Brain:
             del self.hist[:-40]
         self.prev_hp = hp
         act["debug"] = {"label": ("%s hp%d e%d c%d" % (label, hp, energy, cubes))[:80]}
-        if TRACE is not None and int(obs.get("tick", 0)) % 20 == 0:
+        if TRACE is not None and int(obs.get("tick", 0)) % 10 == 0:
             try:
-                TRACE.write("t%.1f pos(%.0f,%.0f,%.0f) hp%.0f e%.0f in_zone=%s zone(%.0f,%.0f r%.0f) next(%.0f,%.0f r%.0f) %s mv=%s w=%s tgt=%s\n" % (
+                vis = ["%d:%d@%d%s" % (e["id"], e.get("hp") or 0, e["dist"], "L" if e["los"] else "") for e in tlist]
+                TRACE.write("t%.1f pos(%.0f,%.0f,%.0f) hp%.0f e%.0f in_zone=%s zone(%.0f,%.0f r%.0f) next(%.0f,%.0f r%.0f) %s mv=%s w=%s tgt=%s c%d alive%s vis=%s\n" % (
                     t, px, py, pz, hp, energy, me.get("in_zone"), zx, zy, zr, nx_, ny_, nr, label,
-                    act["move"], kinds, self.target_id))
+                    act["move"], kinds, self.target_id, cubes, obs.get("alive"), " ".join(vis)))
                 TRACE.flush()
             except Exception:
                 pass
@@ -841,6 +848,7 @@ class Brain:
         # safe circle we must stay in (the zone 6 s from now, with margin)
         margin = clamp(0.12 * lr, 3.0, 12.0)
         dz = hyp(px - lx, py - ly)
+        self.safe_circle = (lx, ly, lr)
 
         mv = None
         # ---- 1. mortar shells / bullets about to hit us
@@ -857,6 +865,10 @@ class Brain:
             zone_push = self.snap_goal(gx, gy, lx, ly, lr)
 
         hp_low = hpf < P["retreat_hp"]
+        if hp_low and P["commit"] and target is not None and len(visible_threats) <= 1:
+            ehp = target.get("hp")
+            if ehp is not None and float(ehp) <= float(me.get("hp", 0)) * P["commit_ratio"]:
+                hp_low = False  # a winnable duel: running only hands the hunter free shots
         fight = target is not None and (target["los"] or t - self.attacked_by.get(target["id"], -99) < 3.0
                                          or target["dist"] < 120)
 
@@ -883,6 +895,9 @@ class Brain:
                 if self.cover_goal is not None:
                     mv = (0.0, 0.0)
                     label = "hide"
+                elif P["noflee"] and target is not None:
+                    mv, boost, label = self.fight_move(t, px, py, kinds, target, hpf, energy, visible_threats, walk)
+                    label = "stand " + label
                 else:
                     e = min(threats, key=lambda e: hyp(e["pos"][0] - px, e["pos"][1] - py))
                     ax, ay = unit(px - e["pos"][0], py - e["pos"][1])
@@ -1040,6 +1055,17 @@ class Brain:
         if len(visible_threats) >= 2:
             rmin = max(rmin, 60.0)
             rmax = max(rmax, rmin + 40.0)
+        ambush = P["ambush"] and not has_laser
+        if ambush and e["los"] and d > P["ambush_d"]:
+            # long gun duels favour nobody but cost us HP: get out of its sight, let it come
+            if self.cover_goal is None or t - self.cover_t > 1.5:
+                cx_, cy_, cr_ = self.safe_circle
+                self.cover_goal = self.find_cover(px, py, [e], cx_, cy_, cr_)
+                self.cover_t = t
+            if self.cover_goal is not None and hyp(self.cover_goal[0] - px, self.cover_goal[1] - py) > 1.5:
+                return self.nav_to(px, py, self.cover_goal[0], self.cover_goal[1]), energy > 40, "ambush-go"
+        if not e["los"] and ambush and d > 50.0:
+            return (0.0, 0.0), False, "ambush"
         if not e["los"]:
             # out of sight: push in when healthy, otherwise hold still and regen
             if P["chase"] and hpf > 0.6 and (hpf > (e.get("hp") or 1400) / max(1.0, e.get("max_hp") or 1400) - 0.1):
