@@ -244,6 +244,9 @@ Codex dispatched: kill-rate levers (g_hunt_early, g_dmg_up, g_focus, g_late_hold
 Label tap (sim, gx config, 4 matches): drop capture works (105 'loot:drop-hold' decisions) but 858 'idle' decisions: the giddy core stands still when there's no target/loot.
 User: use the sim + 14 cores, fan noise OK. Calibration running (/tmp/frozen_calib_1406): 8 configs × 64 matches, to compare sim ranking with ~40 real draws.
 Transplants from JishnuMadav onto the giddy core: drops 5.10, full set 4.92 vs gfc 5.23 → not helping (as their README warns).
-| Sat 2:23 PM (Mac) | `4f60b2d` (gk64) | gfc + hunt_early + focus + killloot | scoring… |
+| Sat 2:23 PM (Mac) | `4f60b2d` (gk64) | gfc + hunt_early + focus + killloot | 5.10 |
 Codex kill levers merged (dev/KILLS.md). Codex dispatched: RADICAL environmental kills (lure hunters into NPC drones, zone traps, choke ambush).
 Calibration (sim 64 matches vs real mean): ours 6.11/4.93, gs 6.41/4.96, gd 7.17/5.06, gn 7.27/5.15 → same ordering (sim gaps ~5x real).
+| Sat 2:36 PM (Mac) | `d416723` (gka66) | gfc + all five kill levers | scoring… |
+Board 2:35 PM: 289 teams; ~12 teams tied at EXACTLY 6.19 (incl. giddygiddyboy) → almost certainly verbatim copies of giddy's public code. Top-32 line ≈ 5.85 (benchmaster). Our re-implementation ≈ 5.2.
+Sim noise: per-match σ≈4.5 → 64-match mean ±0.55; calibration diffs mostly noise (gfc sim 6.31 vs gn 7.27, but real gfc ≥ gn). Need ≥192 matches per arm.
