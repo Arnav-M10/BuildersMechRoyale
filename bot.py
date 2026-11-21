@@ -59,7 +59,7 @@ P = {
     "duck": False,        # gun-only and reloading: step to a spot within ~12 m out of the target's sight
     "select": False,      # engage only close/attacking/approaching/weak/aiming mechs, or late (giddygiddyboy rules)
     "posearch": False,    # fight movement = best of stay + 16 spots 6 m away (range, LOS when ready, crossfire, zone, cubes)
-    "salt": 0,            # mixed into the RNG seed (strafe timing etc.); the strategy itself is unchanged
+    "salt": 2,            # mixed into the RNG seed (strafe timing etc.); the strategy itself is unchanged
 }
 # offline tuning only: the simulator may override knobs through MF_P (never set in matches)
 if os.environ.get("MF_P"):
