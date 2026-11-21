@@ -23,9 +23,12 @@ BOT_NAME = "oval-warden"
 # Strategy knobs (tuned by A/B submissions on the fixed practice seeds)
 P = {
     "core": "ours",       # "ours" or giddygiddyboy's practice-squad core
-    "g_hpw": 0.1,         # giddy core: target score HP weight (giddy latest squad: 0.21)
-    "g_lethalk": 0.8,     # giddy core: partial-laser lethal release factor (giddy latest: 0.7)
-    "g_fb": True,         # giddy core: FightBoost 40 (giddy latest squad dropped it)
+    "g_hpw": 0.1,         # giddy core target HP weight (giddy3 squad: 0.21; real draw 4.65 → keep 0.1)
+    "g_lethalk": 0.8,     # giddy core lethal partial-laser factor (giddy3: 0.7)
+    "g_fb": True,         # giddy core FightBoost 40 (giddy3 removed it)
+    "g_nav": False,       # deeper, closer-to-source giddy path follower
+    "g_cover": False,     # source-style reachable-cell cover BFS
+    "g_stuck": False,     # shorter grounded stuck threshold from giddy3
     "chase": True,        # push toward a target we cannot see when healthy
     "retreat_hp": 0.38,   # break line of sight below this HP fraction
     "laser_band": (50.0, 120.0),
@@ -259,6 +262,7 @@ class Brain:
         self.path = None
         self.path_goal = None
         self.path_t = -99.0
+        self.g_escape_goal = None
         self.hist = []          # (t, x, y, commanded)
         self.stuck_until = -1.0
         self.stuck_dir = (0.0, 0.0)
@@ -1154,7 +1158,8 @@ class Brain:
         if g is None:
             return dx / d, dy / d
         try:
-            if d < 70.0 and g.seg_free(px, py, gx, gy):
+            giddy_nav = P["core"] == "giddy" and P.get("g_nav", False)
+            if d < (45.0 if giddy_nav else 70.0) and g.seg_free(px, py, gx, gy):
                 self.path = None
                 return dx / d, dy / d
             cg = g.comp_at(gx, gy)
@@ -1165,11 +1170,13 @@ class Brain:
                 return dx / d, dy / d
             need = (self.path is None or self.path_goal is None or
                     hyp(self.path_goal[0] - gx, self.path_goal[1] - gy) > 6.0 or
-                    self.t - self.path_t > 4.0 or not self.path)
+                    self.t - self.path_t > (2.5 if giddy_nav else 4.0) or not self.path)
             skipped = False
             if need:
                 if self.time_left() > 0.012:
-                    p = g.astar(px, py, gx, gy, max_nodes=2500, deadline=self.deadline - 0.004)
+                    # Go's World.Path allows 22k expansions; bound the Python variant to 8k.
+                    p = g.astar(px, py, gx, gy, max_nodes=8000 if giddy_nav else 2500,
+                                deadline=self.deadline - 0.004)
                     self.path = p
                     self.path_goal = (gx, gy)
                     self.path_t = self.t
@@ -1182,6 +1189,16 @@ class Brain:
                 if g.seg_free(px, py, gx, gy) or not skipped:
                     return dx / d, dy / d
                 return 0.0, 0.0
+            if giddy_nav:
+                # Source travel() reanchors to the closest of the next ten path cells and
+                # drops a stale path when it has drifted more than 12 m from it.
+                near_i = min(range(min(10, len(path))),
+                             key=lambda i: hyp(path[i][0] - px, path[i][1] - py))
+                if hyp(path[near_i][0] - px, path[near_i][1] - py) > 12.0:
+                    self.path = None
+                    return dx / d, dy / d
+                if near_i:
+                    del path[:near_i]
             while len(path) > 1 and hyp(path[0][0] - px, path[0][1] - py) < 3.0:
                 path.pop(0)
             tgt = path[0]
@@ -1291,6 +1308,14 @@ class Brain:
         fight = target is not None and (target["los"] or t - self.attacked_by.get(target["id"], -99) < 3.0
                                          or target["dist"] < 120)
 
+        if giddy_active and P.get("g_nav", False) and self.geo is not None:
+            # The Go brain escapes isolated nav components even when its current loot/fight
+            # goal lies in that same component. Keep a main-region landing target across ticks.
+            if grounded and self.my_comp != self.main_comp:
+                self.g_escape_goal = self.geo.nearest_in_comp(px, py, self.main_comp, maxr=40)
+            elif grounded:
+                self.g_escape_goal = None
+
         if giddy_active:
             gx, gy = self.giddy_zone_goal(obs.get("zone") or {}, px, py)
             zdist = hyp(gx - px, gy - py)
@@ -1302,7 +1327,15 @@ class Brain:
             hp_now = float(me.get("hp", 1.0))
             finishing = target is not None and target["dist"] < 120.0 and (
                 float(target.get("hp") or 1400.0) < 200.0 or float(target.get("hp") or 1400.0) < hp_now * 0.5)
-            if shell_dodge is not None:
+            if self.g_escape_goal is not None:
+                egx, egy = self.g_escape_goal
+                if grounded:
+                    mv = self.nav_to(px, py, egx, egy, allow_climb=True)
+                else:
+                    mv = unit(egx - px, egy - py)
+                    boost = energy > 1.0
+                label = "escape"
+            elif shell_dodge is not None:
                 mv, boost, label = shell_dodge, energy > 15.0, "dodge-shell"
             elif zone_must and zdist > 2.0:
                 mv = self.nav_to(px, py, gx, gy, allow_climb=True)
@@ -1524,30 +1557,37 @@ class Brain:
                 label += " jet"
 
         # ---- stuck detection
+        giddy_stuck = P["core"] == "giddy" and P.get("g_stuck", False)
         if climbing:
             self.hist.clear()
         elif self.stuck_until > t:
             mv = self.stuck_dir
             if grounded:
                 jump = True
-            boost = energy > 10
+            if not giddy_stuck:
+                boost = energy > 10
             label += " unstick"
-            if len(self.stuck_log) >= 3:
+            if len(self.stuck_log) >= 3 and not giddy_stuck:
                 # stuck again and again: jet straight up and out (long burn)
                 boost = energy > 1
                 label += "+"
         else:
-            if len(self.hist) >= 15:
-                t0 = self.hist[-15][0]
-                # commanded to walk for ~1.5 s but barely moving: wedged on something
-                x0, y0 = self.hist[-15][1], self.hist[-15][2]
-                pushing = all(h[3] > 0.6 for h in self.hist[-15:])
-                slow = all(h[4] < 1.5 for h in self.hist[-15:]) or hyp(px - x0, py - y0) < 1.0
+            stuck_window = 8 if giddy_stuck else 15
+            if len(self.hist) >= stuck_window and (not giddy_stuck or grounded):
+                t0 = self.hist[-stuck_window][0]
+                # giddy3 starts its grounded stuck timer at 0.7 s; the current policy
+                # waits about 1.4 s before attempting the first escape.
+                x0, y0 = self.hist[-stuck_window][1], self.hist[-stuck_window][2]
+                window = self.hist[-stuck_window:]
+                pushing = all(h[3] > (0.1 if giddy_stuck else 0.6) for h in window)
+                slow_limit = 1.2 if giddy_stuck else 1.5
+                slow = all(h[4] < slow_limit for h in window) or hyp(px - x0, py - y0) < 1.0
                 if t - t0 < 2.0 and pushing and slow:
-                    a = math.atan2(mv[1], mv[0]) + (PI / 2 if self.rng.random() < 0.5 else -PI / 2)
+                    a = (self.rng.random() * TAU if giddy_stuck else
+                         math.atan2(mv[1], mv[0]) + (PI / 2 if self.rng.random() < 0.5 else -PI / 2))
                     self.stuck_dir = (math.cos(a), math.sin(a))
                     self.stuck_log = [x for x in self.stuck_log if t - x < 12.0] + [t]
-                    self.stuck_until = t + (0.9 if len(self.stuck_log) < 3 else 3.0)
+                    self.stuck_until = t + ((0.5 if giddy_stuck else 0.9) if len(self.stuck_log) < 3 else 3.0)
                     self.path = None
                     self.hist.clear()
         if charging and not giddy_active:
@@ -1847,13 +1887,20 @@ class Brain:
             z = g.ground(x, y)
             for e in ts:
                 ex, ey, ez = e["pos"]
-                if (g.los(ex, ey, ez + 8.0, x, y, z + height, step=1.5) or
-                        g.los(ex, ey, ez + 8.0, x, y, z + height * 0.5, step=1.5)):
+                eye_z = ez + 8.0
+                if P.get("g_cover", False) and e.get("kind") == "mech":
+                    mech = self.cfg.get("mech") or {}
+                    eye_z = ez + float(mech.get("eye_height", 8.0)) * (
+                        1.0 + self.size_per_cube * float(e.get("cubes") or 0))
+                if (g.los(ex, ey, eye_z, x, y, z + height, step=1.5) or
+                        g.los(ex, ey, eye_z, x, y, z + height * 0.5, step=1.5)):
                     return False
             return True
 
         if hidden(px, py) and self.giddy_zone_penalty(zone, px, py, self.t) == 0.0:
             return px, py
+        if P.get("g_cover", False):
+            return self.giddy_cover_goal_bfs(px, py, ts, zone, hidden)
         cands = sorted(g.cover_near(px, py, 55.0), key=lambda p: (p[0] - px) ** 2 + (p[1] - py) ** 2)[:350]
         best, best_s = None, 1e18
         for x, y in cands:
@@ -1864,6 +1911,48 @@ class Brain:
             score = path_d + self.giddy_zone_penalty(zone, x, y, self.t) - min(near, 80.0) * 0.25
             if score < best_s:
                 best, best_s = (x, y), score
+        return best
+
+    def giddy_cover_goal_bfs(self, px, py, threats, zone, hidden):
+        """Bounded reachable-cell search matching brain.go:1475-1575."""
+        g = self.geo
+        start = g.nearest_free(px, py)
+        if start is None:
+            return None
+        nnx, nny, nav = g.NNX, g.NNY, g.nav
+        queue = [start]
+        steps = {start: 0}
+        best, best_score = None, 1e18
+        checked = 0
+        head = 0
+        while head < len(queue) and checked < 350:
+            cell = queue[head]
+            head += 1
+            i, j = cell % nnx, cell // nnx
+            nsteps = steps[cell]
+            if nsteps > 50 or (best is not None and nsteps * 2 > best_score + 30.0):
+                break
+            if (i + j) % 2 == 0 and nsteps > 0:
+                cx, cy = g.node_xy(cell)
+                checked += 1
+                if hidden(cx, cy):
+                    score = nsteps * 2.0 + self.giddy_zone_penalty(zone, cx, cy, self.t)
+                    near = min(hyp(e["pos"][0] - cx, e["pos"][1] - cy) for e in threats)
+                    score -= min(near, 80.0) * 0.25
+                    if score < best_score:
+                        best, best_score = (cx, cy), score
+            for di, dj in ((1, 0), (-1, 0), (0, 1), (0, -1),
+                           (1, 1), (1, -1), (-1, 1), (-1, -1)):
+                ni, nj = i + di, j + dj
+                if ni < 0 or nj < 0 or ni >= nnx or nj >= nny:
+                    continue
+                nxt = nj * nnx + ni
+                if not nav[nxt] or nxt in steps:
+                    continue
+                if di and dj and (not nav[j * nnx + ni] or not nav[nj * nnx + i]):
+                    continue
+                steps[nxt] = nsteps + 1
+                queue.append(nxt)
         return best
 
     def giddy_fight_move(self, t, px, py, kinds, target, energy, tlist, want_los, range_override=None):
