@@ -139,3 +139,4 @@ Draws ready: s8f `c2d3038`, s9f `6e55960`, s10f `c7d43a9`, s11f `99206b4`.
 - C layer+heal: 1,11,1,5,3,1,9,3 → 11.75
 Pooled so far: A 11.4 (28), C 11.7 (16), B 10.75 (8), D 13.25 (8).
 Round 3 running: D vs D+ffa_fast vs A.
+| Sat 6:42 AM (Mac) | `c2d3038` (s8f) | salt 8 + FFA layer | scoring… |
