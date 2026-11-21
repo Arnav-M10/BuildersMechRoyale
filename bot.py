@@ -48,7 +48,7 @@ P = {
     "want_d": 110.0,        # >0: hold this fight distance (smooth radial), instead of weapon bands
     "tsel": True,         # target = lowest hp * (1 + dist/120) among visible
     "fightloot": True,    # mid-fight: scoop cubes <30 m, fetch a better weapon <200 m, take drops
-    "econ": False,        # TTUN-style economy: hunt drones/crates/drops for cubes; armor/plating/nanites first
+    "econ": True,         # TTUN-style economy: hunt drones/crates/drops for cubes; armor/plating/nanites first
     "killloot": False,    # walk back to where our kills died (their cubes + 2 drop there) when no threat is close
     "gtol": False,        # gun fires on its own lead solution with TTUN tolerance 1.2*atan(2.2*scale/d)
     "precharge": False,   # start a laser charge on a target within 60 m even without line of sight
