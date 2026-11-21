@@ -287,3 +287,5 @@ gg3s6 5.65, gg3s7 5.79, gg3s8 scoring. Go draws mean ≈5.7.
 DEBUG (5 PM): Go debug build traced in sim → the 'zone deaths' were a SIM PHYSICS BUG: blocked mechs kept reporting commanded velocity (~11 m/s) while not moving, so Go's velocity-based unstuck never fired (stuck 110 s, died to zone). Fixed engine (velocity = achieved displacement / dt). Same seed now: 1 zone death in 16 bots, matches run to ~340 s. All earlier clone-sim results (Go 7.31, Py 7.15/13 wins, zs/ng variants) are INVALID.
 Rerun on fixed sim (64 matches each vs 15 Go clones): Go base, our Python ours+FFA, Go ffa-ng.
 gg3s8 5.17 → Go draws mean 5.65 over 9. gg3s9 submitted.
+FIXED-SIM FFA vs 15 Go clones: Go base 7.61 (64 m, sanity OK); our Python ours+FFA 3.83 (18 m) → Go is far stronger in FFA; Python line dropped for the final. Codex finishing 4 Go FFA variants (lurk/vulture/endgame/all).
+gg3s9 5.40; gg3s10 scoring.
