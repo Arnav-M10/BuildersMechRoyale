@@ -283,3 +283,6 @@ Clone-sim analysis: 59% of ALL deaths are zone deaths (median 218 s); Go subject
 Zone: sim engine matches real to 0.004 m (Codex). Live rooms use a 240 s config; official check/practice config is 480 s. Under 480 s, Go clones die to zone massively.
 FFA vs 15 Go clones (480 s, 48 m): Go subject 7.31 (3 wins, 24 zone deaths); our Python ours+FFA pkg 7.15 (13 WINS, 2 zone deaths).
 Cause found in Go FFA Ghost mode: walks 'home' at ~40% speed; zone deadline margin only 3/14 s. Variants (FFA-only changes; practice squad core untouched): ffa-zs `30d6cd5` (full-speed home + margins 15/40 s), ffa-ng `582ff88` (Ghost off), ffa-zsng `bf45e1e` (both). Testing vs 15 clones.
+gg3s6 5.65, gg3s7 5.79, gg3s8 scoring. Go draws mean ≈5.7.
+DEBUG (5 PM): Go debug build traced in sim → the 'zone deaths' were a SIM PHYSICS BUG: blocked mechs kept reporting commanded velocity (~11 m/s) while not moving, so Go's velocity-based unstuck never fired (stuck 110 s, died to zone). Fixed engine (velocity = achieved displacement / dt). Same seed now: 1 zone death in 16 bots, matches run to ~340 s. All earlier clone-sim results (Go 7.31, Py 7.15/13 wins, zs/ng variants) are INVALID.
+Rerun on fixed sim (64 matches each vs 15 Go clones): Go base, our Python ours+FFA, Go ffa-ng.
