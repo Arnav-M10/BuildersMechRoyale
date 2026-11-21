@@ -151,3 +151,4 @@ Pooled: A 11.1 (36), C 11.7 (16), D 11.6 (16), DF 12.75 (8), B 10.75 (8).
 Full-package draws built: s12F `42cfde3`, s13F `5e5b798`, s14F `bedf199`, s15F `84eb891`, s16F `458f615`, s17F `7c131ce` (s12F docker-checked).
 | Sat 7:03 AM (Mac) | `be1e9e1` (s2F) | salt 2 + FULL FFA package: expect exactly 5.29, then re-pick it as the final entry | **5.29 exactly → PICKED as final entry** |
 | Sat 7:23 AM (Mac) | `42cfde3` (s12F) | salt 12 + full FFA package | scoring… |
+Live round 4 running: F (final config) vs F+lurk to 120 s/7 alive vs F+ffa_juke (FFA-only laser juke).
