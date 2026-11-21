@@ -22,8 +22,8 @@ BOT_NAME = "oval-warden"
 
 # Strategy knobs (tuned by A/B submissions on the fixed practice seeds)
 P = {
-    "chase": True,        # push toward a target we cannot see when healthy
-    "retreat_hp": 0.38,   # break line of sight below this HP fraction
+    "chase": False,        # push toward a target we cannot see when healthy
+    "retreat_hp": 0.55,   # break line of sight below this HP fraction
     "laser_band": (70.0, 165.0),
 }
 
