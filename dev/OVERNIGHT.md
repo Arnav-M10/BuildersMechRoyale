@@ -114,7 +114,7 @@ Salt+FFA draws ready: s4f `a5fac69`, s5f `5118cbd`, s6f `04acbfc`, s7f `2d4148f`
 Directional +1.1; never affects practice (s2f = 5.29 exactly). 
 
 ## !!! FINAL ENTRY PICK !!!
-Picked **s2f (BB-F1AB9EAF, `87a0559`, 5.29, FFA layer on)** as the final entry (manual pick). A manual pick STICKS: if a later draw scores higher, it must be re-picked explicitly on the page.
+Picked **s2F (BB-F2DD53A9, `be1e9e1`, 5.29, FULL FFA package)** as the final entry (manual pick; replaced s2f). A manual pick STICKS: if a later draw scores higher, it must be re-picked explicitly on the page.
 | Sat 5:56 AM (Mac) | `5118cbd` (s5f) | salt 5 + FFA layer | 4.73 |
 Codex FFA strategist round dispatched (opening lurk, FFA retreat, vulture, laser LOS, endgame HP race).
 | Sat 6:03 AM (Mac) | `04acbfc` (s6f) | salt 6 + FFA layer | 4.77 |
@@ -149,4 +149,4 @@ Round 3 running: D vs D+ffa_fast vs A.
 Pooled: A 11.1 (36), C 11.7 (16), D 11.6 (16), DF 12.75 (8), B 10.75 (8).
 **Decision: final FFA config = full package (detect/engage/hold/lurk/end/heal/fast).**
 Full-package draws built: s12F `42cfde3`, s13F `5e5b798`, s14F `bedf199`, s15F `84eb891`, s16F `458f615`, s17F `7c131ce` (s12F docker-checked).
-| Sat 7:03 AM (Mac) | `be1e9e1` (s2F) | salt 2 + FULL FFA package: expect exactly 5.29, then re-pick it as the final entry | scoring… |
+| Sat 7:03 AM (Mac) | `be1e9e1` (s2F) | salt 2 + FULL FFA package: expect exactly 5.29, then re-pick it as the final entry | **5.29 exactly → PICKED as final entry** |
