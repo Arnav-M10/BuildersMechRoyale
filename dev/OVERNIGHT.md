@@ -168,3 +168,8 @@ s2G live smoke (16 matches, no errors): 1,2,2,4,1,10,4,15,2,5,1,2,8,3,2,5 → 11
 | Sat 8:13 AM (Mac) | `a368d6c` (s18G) | salt 18 + full FFA package (fixed) | 4.69 |
 Live test running: ffa_econ (FFA-only farming; 16 matches) vs final config (8).
 | Sat 8:24 AM (Mac) | `4058fc9` (s19G) | salt 19 + full FFA package (fixed) | 4.83 |
+
+### FFA live: ffa_econ (FFA-only farming) vs final config
+- econ (16): 2,2,4,1,1,2,4,2,8,8,10,1,6,5,6,1 → 12.1
+- final config (8): 7,15,1,2,1,2,4,5 → 11.4; pooled final config over 40 live matches = 11.9
+Verdict: neutral within noise; final config stays s2G (no farming). FFA tuning is done; the rest of the night = salt draws to raise the practice score above 5.29.
