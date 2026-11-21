@@ -66,3 +66,7 @@ v10 (`575bceb`, slower strafing) built and checked; submit at the next paced slo
 Built as knobs: `selfcomp` (muzzle compensation). Next: reload-duck.
 
 | Sat 3:22 AM (Mac) | `d8eeec4` (exp/v11) | v6 + 145 m with a laser | 5.13 (= v5; neutral) |
+| Sat 3:55 AM (Mac) | `d202d4d` (exp/v13) | v6 + selective engagement + giddygiddyboy target scoring/stickiness (Codex round-3 #1) | scoring… |
+
+### Codex round 3
+Explained the stall: v5 is a coherent policy, and single-knob edits add costs without changing the plan (v10's slow strafe makes us predictable; v8's loose gate wastes shots while slewing; econ pulls us out of position). Ranked next: (1) selective engagement + giddy target scoring/stickiness, (2) giddy's lose-rule/crowd retreat (we disagree: berserk was our biggest real gain), (3) a 16-candidate local fight-position search, (4) laser juke with a zone guard. It would hold selfcomp/duck/killloot/precharge/wdist as below the 0.2 bar.
