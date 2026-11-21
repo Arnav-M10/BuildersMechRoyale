@@ -115,3 +115,5 @@ Directional +1.1; never affects practice (s2f = 5.29 exactly).
 
 ## !!! FINAL ENTRY PICK !!!
 Picked **s2f (BB-F1AB9EAF, `87a0559`, 5.29, FFA layer on)** as the final entry (manual pick). A manual pick STICKS: if a later draw scores higher, it must be re-picked explicitly on the page.
+| Sat 5:56 AM (Mac) | `5118cbd` (s5f) | salt 5 + FFA layer | scoring… |
+Codex FFA strategist round dispatched (opening lurk, FFA retreat, vulture, laser LOS, endgame HP race).
