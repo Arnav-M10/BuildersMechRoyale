@@ -23,6 +23,9 @@ BOT_NAME = "oval-warden"
 # Strategy knobs (tuned by A/B submissions on the fixed practice seeds)
 P = {
     "core": "ours",       # "ours" or giddygiddyboy's practice-squad core
+    "g_hpw": 0.1,         # giddy core: target score HP weight (giddy latest squad: 0.21)
+    "g_lethalk": 0.8,     # giddy core: partial-laser lethal release factor (giddy latest: 0.7)
+    "g_fb": True,         # giddy core: FightBoost 40 (giddy latest squad dropped it)
     "chase": True,        # push toward a target we cannot see when healthy
     "retreat_hp": 0.38,   # break line of sight below this HP fraction
     "laser_band": (50.0, 120.0),
@@ -700,7 +703,7 @@ class Brain:
                 if not e["engage"] or not e["los"] or d > 240.0:
                     continue
                 emax = e.get("max_hp") or 1400.0
-                s = d + 0.1 * float(ehp)
+                s = d + P["g_hpw"] * float(ehp)
                 if float(ehp) <= 0.3 * float(emax):
                     s -= 200.0
                 if e["id"] == self.giddy_stick_id and t - self.giddy_stick_at < 2.0:
@@ -1348,7 +1351,7 @@ class Brain:
                 mv = self.giddy_fight_move(t, px, py, kinds, target, energy, tlist, want_los, finish_range)
                 if lit is not None and d > 50.0 and energy > 55.0 and want_los > 0.0:
                     boost = True
-                if energy > 40.0 and not self.laser_charging_now and (lit is None or energy > 60.0):
+                if P["g_fb"] and energy > 40.0 and not self.laser_charging_now and (lit is None or energy > 60.0):
                     boost = True
                 radius = 70.0 * (0.57 if hpf <= 0.5 else 1.0)
                 nearest, nearest_d = None, radius
@@ -2096,7 +2099,7 @@ class Brain:
                 dmg *= 1.0 + self.dmg_per_cube * min(float(me.get("cubes", 0)), self.stat_cap)
                 if "mortar" in (shoot.get("weapons") or []):
                     dmg *= 1.0 + float(laser_stats.get("cookoff", 0.6))
-                kill_now = (lethal and shoot.get("hp") is not None and dmg * 0.8 >= float(shoot["hp"])
+                kill_now = (lethal and shoot.get("hp") is not None and dmg * (P["g_lethalk"] if P["core"] == "giddy" else 0.8) >= float(shoot["hp"])
                             and aligned_now)
                 full = charge >= full_charge - 0.051
                 overtime = charge >= full_charge + hold_s - 0.35
