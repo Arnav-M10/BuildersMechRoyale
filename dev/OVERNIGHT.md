@@ -22,5 +22,13 @@ Typical loss: a 130–160 m gun duel against the first hunter, then a flight acr
   Its bet: exposure-aware disengagement. Implemented as knob `race` (disengage when time-to-death < 0.8 × time-to-kill; cover only within 35 m, otherwise fight while strafing).
 - Engineer: grown-mech collision fixed in the sim; investigating two mid-game zone deaths.
 
-## Submissions
-None overnight (no browser control without a permission prompt). The hash to submit will be listed at the top here when one wins.
+## Other teams' public repos (read, not run; ideas reimplemented in our own code)
+- **Team Inventors** (ParishruthiGanesh/mech-royale, 5.15, MIT): real-server A/B history says never retreat ("berserk"), a 110 m fight distance and fetching better weapons mid-fight each "scored best".
+- **TTUN/Wolverines/r1ver** (varchaskukreja/TTUN, 5.10–5.21, MIT): an "economy" bot that farms drones, crates, drops and cubes hard, upgrades armor/plating/nanites first, and retreats only when clearly losing.
+- skandra08 ("lh-" bots, 2.29): their best single change was stay-and-fight (no disengage) in practice.
+- Evans-Kwashie EXPERIMENTS.md: hold triggers through the cooldown boundary; give the gun and laser separate aim solutions.
+
+## Submissions (via Claude in Chrome)
+| Time | Commit | What | Score |
+|---|---|---|---|
+| Sat 2:55 AM | `2dfc546` (exp/v5) | berserk + 110 m + hp×dist targeting + mid-fight looting (sim: +1.02 ± 0.67 over base, 48 seeds) | scoring… |
