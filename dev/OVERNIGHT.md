@@ -35,7 +35,8 @@ Typical loss: a 130–160 m gun duel against the first hunter, then a flight acr
 | Sat ~3:00 AM | `b7bb624` (main) | v5 + zone-forecast fix (server sends the current circle) + displacement stuck check | 5.10 (= v5 within noise; kept, it's correct) |
 | Sat ~3:05 AM | `bee838d` (exp/v7) | v5 + TTUN-style economy (sim +1.03 ± 0.47 vs v5) | **4.56** (worse than 5.13: the sim overrates farming; econ stays off) |
 | Sat 3:22 AM | `173b7c0` (exp/v8) | v6 + TTUN gun tolerance on the gun's own lead (both top public bots fire much more freely) | 4.79 (worse; gtol stays off) |
-| Sat 2:55 AM (Mac) | `0fdb4d9` (exp/v9) | v6 + Inventors' upgrade order | scoring… |
+| Sat 2:55 AM (Mac) | `0fdb4d9` (exp/v9) | v6 + Inventors' upgrade order | 4.90 (no gain; default order kept) |
+| Sat 3:01 AM (Mac) | `575bceb` (exp/v10) | v6 + slower strafe flips (1.0–2.6 s) | scoring… |
 
 ## Sim sweeps since v5
 | Seeds | Variant (vs v5) | Result |
