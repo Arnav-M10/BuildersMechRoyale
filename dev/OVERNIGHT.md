@@ -270,7 +270,9 @@ Queue (Go, all from go-giddy3): gp-hpw25 `b9e44f2`, gp-hpw30 `ba7cd5c`, gp-loot1
 Salt swing on the Go bot ≈ ±0.25 (6.17 vs 5.92). Single-draw param tests are weak evidence.
 | Sat 3:23 PM (Mac) | `83e7442` (gp-hpw25-loot180) | go-giddy3 + HPw .25 + LootRadius 180 | 5.85 |
 ### FFA live (3:15 PM): our Python + FFA pkg (8): 1,6,5,11,8,9,1,5 → 10.25. Go bot live run relaunched (first launch failed: zsh didn't split the docker command).
-| Sat 3:37 PM (Mac) | `272ce24` (gg3s2) | go-giddy3 + salt 2 | scoring… |
+| Sat 3:37 PM (Mac) | `272ce24` (gg3s2) | go-giddy3 + salt 2 | 5.42 |
 ### FFA live Go bot (16): 1,3,1,9,1,10,1,10,9,11,1,1,2,1,3,10 → 11.4 pts, 7 WINS / 16.
 FFA clone-sim WORKING (3:49 PM): Codex harness + 2 fixes (unreachable write body; integral floats → ints because Go rejects "cubes":0.0). Go vs 15 Go: kills, laser/lightning deaths, several clones die to zone ~200 s.
 A/B running (/tmp/frozen_ffa_1549, 48 matches each vs 15 Go clones, symmetric baseline = 7.5): Go subject, our Python ours-core+FFA pkg, Python gfc+FFA pkg.
+Go practice draws: 6.17, 5.92, 5.42 (+5.85 param) → mean ≈5.84; our 6.17 was lucky. Risk: if line passes 6.17 we fall out → keep salt-drawing for a higher pick.
+| Sat 3:57 PM (Mac) | `9f09d16` (gg3s3) | go-giddy3 + salt 3 | scoring… |
