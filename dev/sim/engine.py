@@ -98,6 +98,23 @@ class Actor:
     house_next_act: float = 0.0
     house_action: dict = field(default_factory=dict)
     seen: dict = field(default_factory=dict)
+    house_roam_angle: float = 0.0
+    house_roof_goal: tuple | None = None
+    house_roof_goal_until: float = 0.0
+    house_roof_next: float = 0.0
+    house_roof_arrived: bool = False
+    house_ticks: int = 0
+    house_moving_ticks: int = 0
+    house_boost_ticks: int = 0
+    house_roof_ticks: int = 0
+    house_path: list = field(default_factory=list)
+    house_path_target: tuple | None = None
+    house_path_refresh: float = 0.0
+    gun_shots: int = 0
+    gun_mech_hits: int = 0
+    gun_hunt_shots: int = 0
+    gun_hunt_hits: int = 0
+    house_target_id: int | None = None
 
 
 @dataclass
@@ -290,6 +307,7 @@ class Match:
             a = Actor(i, "mech", points[i], [0.0, 0.0, 0.0],
                       [self.rng.uniform(-PI, PI), 0.0], float(self.mechanics["hp"]),
                       float(self.mechanics["energy"]))
+            a.house_roam_angle = self.rng.random() * TAU
             a.commanded_aim = list(a.aim)
             if i == 0 or self.ffa:
                 a.house_tier = 0
@@ -640,80 +658,263 @@ class Match:
                     "boost": bool(last.get("boost", False)), "fire": [False, False]}
         return {"move": [0.0, 0.0], "aim": list(a.aim), "boost": False, "fire": [False, False]}
 
+    def _house_hunters(self, subject):
+        roster = [x for x in self.actors.values()
+                  if x.kind == "mech" and x.id != 0 and x.alive]
+        if not roster:
+            return set()
+        # One weak bot hunts at the start. Time and house-bot deaths each
+        # increase pressure; the whole squad only commits in the late game.
+        time_fraction = clamp(self.t / max(1.0, self.max_time), 0.0, 1.0)
+        by_time = 1 + int(14 * min(1.0, time_fraction / 0.65))
+        house_deaths = 15 - len(roster)
+        by_deaths = 1 + 4 * house_deaths
+        count = min(len(roster), max(1, by_time, by_deaths))
+        # Keep the tier order, then send the nearest available bot in that tier.
+        ordered = sorted(roster, key=lambda x: (x.house_tier,
+                                                norm2(x.pos[0] - subject.pos[0],
+                                                      x.pos[1] - subject.pos[1]),
+                                                x.id))
+        return {x.id for x in ordered[:count]}
+
+    def _house_roam(self, a, zone):
+        cx, cy = zone["center"]
+        radius = max(20.0, float(zone["radius"]) * 0.58)
+        angle = a.house_roam_angle + self.t * (11.7 / radius)
+        tx, ty = cx + math.cos(angle) * radius, cy + math.sin(angle) * radius
+        dx, dy = tx - a.pos[0], ty - a.pos[1]
+        # Follow the circle smoothly instead of stopping at each waypoint.
+        tangent = (-math.sin(angle), math.cos(angle))
+        if math.hypot(dx, dy) < 18.0:
+            dx += tangent[0] * 14.0
+            dy += tangent[1] * 14.0
+        return list(unit(dx, dy))
+
+    def _house_roof_goal(self, a, tier, zone):
+        if a.house_roof_goal is not None:
+            gx, gy, gz = a.house_roof_goal
+            dist = norm2(gx - a.pos[0], gy - a.pos[1])
+            top = self.geo.surface(a.pos[0], a.pos[1])
+            on_roof = (top - self.geo.ground(a.pos[0], a.pos[1]) > 2.0 and
+                       abs(a.pos[2] - top) < 2.5)
+            if dist < 14.0 and on_roof:
+                if not a.house_roof_arrived:
+                    a.house_roof_arrived = True
+                    a.house_roof_goal_until = self.t + {1: 12.0, 2: 12.0, 3: 18.0, 4: 28.0}[tier]
+                if self.t < a.house_roof_goal_until:
+                    return a.house_roof_goal
+                a.house_roof_goal = None
+                a.house_roof_arrived = False
+            elif self.t < a.house_roof_goal_until:
+                return a.house_roof_goal
+            else:
+                a.house_roof_goal = None
+                a.house_roof_arrived = False
+        if self.t < a.house_roof_next or not self.roof_nodes:
+            return None
+
+        # Rooftop rates in the recordings ranged from about 8% to 28% of
+        # frames. Seek one periodically, more often for the expert tier.
+        period = {1: 150.0, 2: 140.0, 3: 100.0, 4: 35.0}[tier]
+        a.house_roof_next = self.t + period
+        cx, cy = zone["center"]
+        zone_r = float(zone["radius"])
+        best = None
+        for _ in range(48):
+            k = self.rng.choice(self.roof_nodes)
+            i, j = k % self.geo.NX, k // self.geo.NX
+            x, y = self.geo.X0 + i, self.geo.Y0 + j
+            d = norm2(x - a.pos[0], y - a.pos[1])
+            if d < 24.0 or d > 145.0 or norm2(x - cx, y - cy) > zone_r * 0.7:
+                continue
+            z = float(self.geo.hi[k])
+            score = abs(d - 75.0) - max(0.0, z - a.pos[2]) * 0.08
+            if best is None or score < best[0]:
+                best = (score, (float(x), float(y), z))
+        if best is None:
+            return None
+        a.house_roof_goal = best[1]
+        a.house_roof_goal_until = self.t + 34.0
+        a.house_roof_arrived = False
+        return a.house_roof_goal
+
+    def _house_path_move(self, a, target):
+        goal = (float(target.pos[0]), float(target.pos[1]))
+        changed = (a.house_path_target is None or
+                   norm2(goal[0] - a.house_path_target[0],
+                         goal[1] - a.house_path_target[1]) > 32.0)
+        if self.t >= a.house_path_refresh or changed:
+            a.house_path = self.geo.astar(a.pos[0], a.pos[1], goal[0], goal[1],
+                                          max_nodes=1800)
+            a.house_path_target = goal
+            a.house_path_refresh = self.t + 2.0
+        while a.house_path and norm2(a.house_path[0][0] - a.pos[0],
+                                     a.house_path[0][1] - a.pos[1]) < 7.0:
+            a.house_path.pop(0)
+        if not a.house_path:
+            return None
+        return list(unit(a.house_path[0][0] - a.pos[0],
+                         a.house_path[0][1] - a.pos[1]))
+
+    def _house_weapon_goal(self, a, tier):
+        ranks = {"gun": 0, "mortar": 1, "lightning": 2, "laser": 3}
+        held = a.weapons[1].kind if a.weapons[1] else None
+        held_rank = ranks.get(held, 0)
+        horizon = {1: 42.0, 2: 58.0, 3: 76.0, 4: 92.0}[tier]
+        best = None
+        for iid, p in self.pickups.items():
+            rank = ranks.get(p.kind, 0)
+            d = norm2(p.pos[0] - a.pos[0], p.pos[1] - a.pos[1])
+            if rank <= held_rank or d > horizon or abs(p.pos[2] - a.pos[2]) > 10:
+                continue
+            score = rank * 10.0 - d * (0.12 if tier == 1 else 0.08)
+            if best is None or score > best[0]:
+                best = (score, iid, p)
+        return best[2] if best else None
+
+    def _house_pick_upgrade(self, a):
+        if not a.offer:
+            return None
+        priority = {
+            "plating": 0, "gun_damage": 1, "gun_mag": 2, "armor": 3,
+            "gun_rate": 4, "nanites": 5, "laser_damage": 6,
+            "gun_velocity": 7, "laser_charge": 8, "lightning_efficiency": 9,
+        }
+        choices = a.offer.get("choices", [])
+        if not choices:
+            return None
+        selected = min(range(len(choices)),
+                       key=lambda i: (priority.get(choices[i].get("id"), 50), i))
+        return selected
+
     def house_action(self, a, subject):
-        if not subject or not subject.alive:
-            return {"move": [0.0, 0.0], "aim": list(a.aim), "fire": [False, False]}
-        alive = sum(1 for x in self.actors.values() if x.kind == "mech" and x.alive)
-        roster = [x for x in self.actors.values() if x.kind == "mech" and x.id != 0 and x.alive]
-        hunter_count = min(len(roster), max(1, 1 + int((16 - alive) * 1.4)))
-        # The squad sends its strongest available hunters first, breaking ties
-        # by distance. Escalation adds more fighters as the field thins.
-        hunter_ids = {x.id for x in sorted(roster,
-                      key=lambda x: (-x.house_tier,
-                                     norm2(x.pos[0]-subject.pos[0], x.pos[1]-subject.pos[1]), x.id))[:hunter_count]}
-        active = a.id in hunter_ids
         tier = a.house_tier
         if self.t + 1e-8 < a.house_next_act:
             return a.house_action
-        reaction = {1: 0.65, 2: 0.35, 3: 0.2, 4: 0.1}[tier]
+        reaction = {1: 0.5, 2: 0.25, 3: 0.15, 4: 0.1}[tier]
         a.house_next_act = self.t + reaction
-        dx, dy = subject.pos[0] - a.pos[0], subject.pos[1] - a.pos[1]
+
+        hunters = self._house_hunters(subject) if subject and subject.alive else set()
+        recently_attacked = (subject is not None and subject.alive and
+                             a.last_damage_by == subject.id and self.t - a.last_damage_at < 8.0)
+        squad_hunter = a.id in hunters
+        target = subject if (squad_hunter or recently_attacked) else None
+        if target is None:
+            npc_ids = {x.id for x in self.actors.values() if x.kind == "npc" and x.alive}
+            npc_attacker = self.actors.get(a.last_damage_by) if a.last_damage_by in npc_ids else None
+            if npc_attacker and self.t - a.last_damage_at < 8.0:
+                target = npc_attacker
+            else:
+                target = min((x for x in self.actors.values()
+                              if x.kind == "npc" and x.alive and x.npc_target == a.id),
+                             key=lambda x: norm2(x.pos[0] - a.pos[0], x.pos[1] - a.pos[1]),
+                             default=None)
+        active = target is not None
+        a.house_target_id = target.id if target else None
+        dx = target.pos[0] - a.pos[0] if target else 0.0
+        dy = target.pos[1] - a.pos[1] if target else 0.0
         dist = math.hypot(dx, dy)
-        # A shared squad memory gives all hunters a fresh position; only active hunters pursue.
-        sr, sh = self._actor_size(subject)
-        visible = dist < 280 and self._visible(a, subject.pos, sr, sh)
+
         desired = a.aim[:]
-        if active:
-            lead = {1: 0.12, 2: 0.35, 3: 0.7, 4: 0.92}[tier]
-            travel = min(1.8, dist / 180.0) * lead
-            tp = [subject.pos[0] + subject.vel[0] * travel,
-                  subject.pos[1] + subject.vel[1] * travel,
-                  subject.pos[2] + 4.5 + subject.vel[2] * travel]
-            desired = list(yaw_pitch([a.pos[0], a.pos[1], a.pos[2] + 7], tp))
-            err = {1: 8.0, 2: 4.0, 3: 1.8, 4: 0.55}[tier]
+        visible = False
+        if target:
+            tr, th = self._actor_size(target)
+            visible = dist < 280 and self._visible(a, target.pos, tr, th)
+            lead = {1: 0.85, 2: 0.92, 3: 0.97, 4: 1.0}[tier]
+            gun_speed = max(1.0, float(a.weapon_stats["gun"].get("speed", 252.0)))
+            travel = min(1.8, dist / gun_speed) * lead
+            aim_at = [target.pos[0] + target.vel[0] * travel,
+                      target.pos[1] + target.vel[1] * travel,
+                      target.pos[2] + 4.5 + target.vel[2] * travel]
+            desired = list(yaw_pitch([a.pos[0], a.pos[1], a.pos[2] + 7], aim_at))
+            # The two Astra probes averaged 18–20% gun hits, while the red
+            # builds and expert were 45–49% on mechs in the live replays.
+            err = {1: 5.5, 2: 4.5, 3: 0.7, 4: 0.5}[tier]
             desired[0] += self.rng.gauss(0, math.radians(err))
             desired[1] += self.rng.gauss(0, math.radians(err * 0.6))
-        move = [0.0, 0.0]
+
         zone = self.zone_state(self.t + 8.0)[0]
         zx, zy = zone["center"]
         zone_dist = norm2(a.pos[0] - zx, a.pos[1] - zy)
         zone_push = zone_dist > max(10.0, float(zone["radius"]) * 0.72)
-        if active:
+        move = [0.0, 0.0]
+        roof_goal = None
+        if active and target and target.kind == "mech" and tier >= 3 and (dist > 90.0 or a.house_roof_goal is not None):
+            roof_goal = self._house_roof_goal(a, tier, zone)
+        if active and target:
             if tier >= 3 and self.t >= a.house_strafe_until:
                 a.house_strafe *= -1.0 if self.rng.random() < 0.65 else 1.0
                 a.house_strafe_until = self.t + self.rng.uniform(0.45, 1.1)
             ux, uy = unit(dx, dy)
-            lateral = {-1: 0.0, 1: 0.0, 2: 0.4, 3: 0.75, 4: 1.0}[tier]
-            radius = 70 if any(w and w.kind == "laser" for w in a.weapons) else 34
-            radial = 1.0 if dist > radius + 18 else -0.8 if dist < radius - 18 else 0.0
+            lateral = {1: 0.0, 2: 0.2, 3: 0.72, 4: 0.95}[tier]
+            if any(w and w.kind == "laser" for w in a.weapons):
+                radius = 76.0
+            elif any(w and w.kind == "lightning" for w in a.weapons):
+                radius = 34.0
+            else:
+                radius = 57.0
+            if dist > radius + 30.0:
+                lateral = 0.0
+            radial = 1.0 if dist > radius + 14 else -0.75 if dist < radius - 14 else 0.0
             if tier >= 3 and a.hp / max(a.max_hp, 1.0) < 0.28 and dist < 125:
                 radial = -1.0
-            move = [ux * radial - uy * lateral * a.house_strafe,
-                    uy * radial + ux * lateral * a.house_strafe]
-            move = list(unit(*move))
+            move = list(unit(ux * radial - uy * lateral * a.house_strafe,
+                             uy * radial + ux * lateral * a.house_strafe))
+            if (target.kind == "mech" and dist > radius + 30.0 and not roof_goal and
+                    not self.geo.seg_free(a.pos[0], a.pos[1], target.pos[0], target.pos[1])):
+                path_move = self._house_path_move(a, target)
+                if path_move:
+                    move = path_move
+            if roof_goal and target.kind == "mech" and (dist > 90.0 or a.house_roof_arrived):
+                gx, gy, _ = roof_goal
+                gd = norm2(gx - a.pos[0], gy - a.pos[1])
+                if a.house_roof_arrived and gd > 1e-6:
+                    gux, guy = unit(gx - a.pos[0], gy - a.pos[1])
+                    move = list(unit(gux * (gd - 12.0) - guy * 12.0,
+                                     guy * (gd - 12.0) + gux * 12.0))
+                elif not a.house_roof_arrived:
+                    move = list(unit(gx - a.pos[0], gy - a.pos[1]))
         else:
-            # Non-hunters collect nearby cubes and otherwise drift toward the safe circle.
-            nearest = None
-            nd = 1e9
+            # FFA-style roaming and looting. House bots never select another
+            # house as a combat target; only an attack by the contestant makes
+            # a non-hunter retaliate.
+            weapon_goal = self._house_weapon_goal(a, tier)
+            cube_goal = None
+            cube_dist = 1e9
             for cube in self.cubes.values():
                 d = norm2(cube.pos[0] - a.pos[0], cube.pos[1] - a.pos[1])
-                if d < nd:
-                    nd, nearest = d, cube
-            if nearest and nd < 65:
-                move = list(unit(nearest.pos[0] - a.pos[0], nearest.pos[1] - a.pos[1]))
+                if d < cube_dist and d <= 90:
+                    cube_goal, cube_dist = cube, d
+            if tier >= 1:
+                roof_goal = self._house_roof_goal(a, tier, zone)
+            if weapon_goal:
+                move = list(unit(weapon_goal.pos[0] - a.pos[0],
+                                 weapon_goal.pos[1] - a.pos[1]))
+            elif cube_goal:
+                move = list(unit(cube_goal.pos[0] - a.pos[0],
+                                 cube_goal.pos[1] - a.pos[1]))
+            elif roof_goal:
+                gx, gy, _ = roof_goal
+                d = norm2(gx - a.pos[0], gy - a.pos[1])
+                if a.house_roof_arrived and d > 1e-6:
+                    ux, uy = unit(gx - a.pos[0], gy - a.pos[1])
+                    move = list(unit(ux * (d - 12.0) - uy * 12.0,
+                                     uy * (d - 12.0) + ux * 12.0))
+                else:
+                    move = list(unit(gx - a.pos[0], gy - a.pos[1]))
+            else:
+                move = self._house_roam(a, zone)
         if zone_push:
             zu = unit(zx - a.pos[0], zy - a.pos[1])
-            if active:
-                move = list(unit(zu[0] + move[0] * 0.35, zu[1] + move[1] * 0.35))
-            else:
-                move = list(zu)
-        # tiered weapon pickup; elites actively seek the best available weapon
+            move = list(unit(zu[0] * 0.85 + move[0] * 0.15,
+                             zu[1] * 0.85 + move[1] * 0.15))
+
         take, drop = self._house_take(a, tier)
         fire = [False, False]
-        if active and visible:
+        if active and target and visible:
             yaw_err = abs(wrap(desired[0] - a.aim[0]))
             pitch_err = abs(desired[1] - a.aim[1])
-            tol = {1: 0.17, 2: 0.12, 3: 0.085, 4: 0.065}[tier]
+            tol = {1: 0.14, 2: 0.12, 3: 0.085, 4: 0.065}[tier]
             for slot, w in enumerate(a.weapons):
                 if not w:
                     continue
@@ -728,41 +929,56 @@ class Match:
                     fire[slot] = yaw_err < math.radians(a.weapon_stats["lightning"]["cone_deg"] * 0.45) and a.energy >= a.weapon_stats["lightning"]["energy"]
                 elif w.kind == "mortar" and dist < 170:
                     fire[slot] = yaw_err < tol * 1.3 and w.cooldown <= 0
-        action = {"move": move, "aim": desired,
-                  "boost": bool((zone_push and a.energy > 20) or (active and tier >= 2 and dist > 50 and a.energy > 35)),
-                  "jump": bool(active and tier == 4 and self.rng.random() < 0.03),
-                  "fire": fire, "reload": any(w and w.kind == "gun" and w.ammo <= 0 for w in a.weapons),
+
+        boost_duty = {1: 0.10, 2: 0.12, 3: 0.15, 4: 0.18}[tier]
+        boost_phase = (self.t + a.id * 1.73) % 6.0
+        boost = bool(math.hypot(*move) > 0.2 and boost_phase < 6.0 * boost_duty and a.energy > 18)
+        zone_escape = zone_dist > float(zone["radius"]) * 0.9
+        if zone_escape and a.energy > 18:
+            boost = True
+        roof_climb = bool(roof_goal and not a.house_roof_arrived and
+                          norm2(roof_goal[0] - a.pos[0], roof_goal[1] - a.pos[1]) < 28.0 and
+                          roof_goal[2] > a.pos[2] + 2.0)
+        if roof_climb and a.energy > 18:
+            boost = True
+        # A short periodic hop helps the upper tiers clear low walls and climb
+        # onto roofs without turning every movement command into a jump.
+        jump_period = {1: 16.0, 2: 13.0, 3: 10.0, 4: 7.0}[tier]
+        jump = bool((roof_climb and a.grounded) or
+                    (zone_escape and a.grounded and self.t % 2.0 < 0.1) or
+                    (self.t % jump_period < 0.1 and math.hypot(*move) > 0.2))
+        action = {"move": move, "aim": desired, "boost": boost,
+                  "jump": jump, "fire": fire,
+                  "reload": any(w and w.kind == "gun" and w.ammo <= 0 for w in a.weapons),
                   "take": take}
+        pick = self._house_pick_upgrade(a)
+        if pick is not None:
+            action["pick"] = pick
         if drop is not None:
             action["drop"] = drop
         a.house_action = action
         return action
 
     def _house_take(self, a, tier):
-        if tier < 2 or self.t < 5:
-            return None, None
-        ranks = {"gun": 1.0, "mortar": 1.5, "lightning": 2.5, "laser": 3.2}
-        held = {w.kind for w in a.weapons if w}
+        ranks = {"gun": 0, "mortar": 1, "lightning": 2, "laser": 3}
+        current = a.weapons[1].kind if a.weapons[1] else None
+        current_rank = ranks.get(current, 0)
         best = None
         for iid, p in self.pickups.items():
             d = norm2(p.pos[0] - a.pos[0], p.pos[1] - a.pos[1])
-            if d > (22 if tier == 2 else 42):
+            if d > 3.8 or abs(p.pos[2] - a.pos[2]) > 4:
                 continue
-            if abs(p.pos[2] - a.pos[2]) > 4 or p.kind in held:
+            rank = ranks.get(p.kind, 0)
+            if rank <= current_rank:
                 continue
-            val = ranks.get(p.kind, 0) - d * (0.03 if tier >= 3 else 0.06)
+            val = rank - d * 0.02
             if best is None or val > best[0]:
-                best = (val, iid, p.kind)
-        if not best:
+                best = (val, iid, rank)
+        if best is None:
             return None, None
-        empty = next((i for i, w in enumerate(a.weapons) if w is None), None)
-        if empty is not None:
-            return best[1], None
-        if tier >= 3:
-            weakest = min(range(2), key=lambda i: ranks.get(a.weapons[i].kind, 0))
-            if ranks.get(best[2], 0) > ranks.get(a.weapons[weakest].kind, 0) + 0.4:
-                return best[1], weakest
-        return None, None
+        # Slot zero is the starter gun and is never dropped. Upgrades replace
+        # only slot one's mortar/lightning; laser has the highest preference.
+        return best[1], (1 if a.weapons[1] else None)
 
     def npc_action(self, a):
         cfg = self.cfg["npc"]
@@ -993,6 +1209,10 @@ class Match:
             if effect:
                 ev["effect"] = effect
             attacker.events.append(ev)
+            if target.kind == "mech" and weapon == "gun":
+                attacker.gun_mech_hits += 1
+                if attacker.house_tier and attacker.house_target_id == target.id:
+                    attacker.gun_hunt_hits += 1
         if target.hp <= 0:
             self._kill(target, weapon, attacker_id)
         return raw, rear
@@ -1065,6 +1285,10 @@ class Match:
         if self.geo.solid_at(*muzzle_end):
             w.cooldown = float(s["cooldown"])
             return
+        if a.kind == "mech":
+            a.gun_shots += 1
+            if a.house_tier and a.house_target_id == 0:
+                a.gun_hunt_shots += 1
         self.next_projectile_id += 1
         self.projectiles.append(Projectile(self.next_projectile_id, "gun", a.id, origin,
              [d[0]*float(s["speed"]), d[1]*float(s["speed"]), d[2]*float(s["speed"])],
@@ -1318,12 +1542,13 @@ class Match:
         if m>1: mv=[mv[0]/m,mv[1]/m];m=1
         if a.kind=="mech":
             charging=any(w and w.kind=="laser" and w.charging for w in a.weapons)
-            speed=float(stats.get("boost_speed" if getattr(a,"_boost",False) else "walk_speed",11.7))
+            grounded=a.grounded
+            speed=float(stats.get("boost_speed" if grounded and getattr(a,"_boost",False) else "walk_speed",11.7))
             if charging:speed*=float(stats.get("charge_move_mult",0.5))
             desired=[mv[0]*speed,mv[1]*speed]
-            grounded=a.grounded
             if getattr(a,"_jump",False) and grounded:
                 a.vel[2]=float(stats.get("jump_speed",11));a.grounded=False
+            jetting=False
             if getattr(a,"_boost",False):
                 if grounded and m>0:
                     cost=float(stats.get("boost_drain",17))*dt
@@ -1334,7 +1559,7 @@ class Match:
                     cost=float(stats.get("jet_drain",15))*dt
                     if a.energy>=cost:
                         a.energy-=cost;a.last_energy_spend=self.t
-                        a.vel[2]=min(float(stats.get("max_rise_speed",10)),a.vel[2]+float(stats.get("jet_accel",34))*dt)
+                        jetting=True
             accel=float(stats.get("ground_accel",58.5) if grounded else stats.get("air_accel",12))
         else:
             desired=[mv[0]*float(self.cfg["npc"].get("speed",5)),mv[1]*float(self.cfg["npc"].get("speed",5))]
@@ -1351,10 +1576,11 @@ class Match:
         def surface_ok(x,y):
             z=self._walk_surface(x,y,oldz)
             if z is None:return None
-            if z-oldz>step+0.12 and oldz<=z-step: return None
             move_d=math.hypot(x-oldx,y-oldy)
-            if move_d>0.1 and z>oldz and (z-oldz)/move_d>math.tan(math.radians(float(stats.get("max_slope_deg",50)))):
-                return None
+            if a.grounded:
+                if z-oldz>step+0.12 and oldz<=z-step: return None
+                if move_d>0.1 and z>oldz and (z-oldz)/move_d>math.tan(math.radians(float(stats.get("max_slope_deg",50)))):
+                    return None
             for k in range(8):
                 ang=k*TAU/8
                 if self.geo.solid_at(x+math.cos(ang)*rad*.78,y+math.sin(ang)*rad*.78,oldz+2.0):return None
@@ -1372,6 +1598,9 @@ class Match:
             a.pos[2]=nz;a.vel[2]=max(0.0,a.vel[2]);a.grounded=True
         else:
             a.vel[2]-=float(stats.get("gravity",22))*dt
+            if a.kind=="mech" and jetting:
+                a.vel[2]=min(float(stats.get("max_rise_speed",10)),
+                             a.vel[2]+float(stats.get("jet_accel",34))*dt)
             znext=oldz+a.vel[2]*dt
             _, actor_height = self._actor_size(a)
             if znext>oldz and self.geo.solid_at(nx,ny,znext+actor_height):
@@ -1390,6 +1619,15 @@ class Match:
                 a.pos[0]+=ux*push;a.pos[1]+=uy*push;b.pos[0]-=ux*push;b.pos[1]-=uy*push
         if a.kind=="mech" and not a._boost and self.t-a.last_energy_spend>=float(stats.get("energy_regen_delay",0.6)):
             a.energy=min(a.max_energy,a.energy+float(stats.get("energy_regen",18))*dt)
+        if a.kind == "mech" and a.house_tier:
+            a.house_ticks += 1
+            if norm2(a.vel[0], a.vel[1]) > 1.0:
+                a.house_moving_ticks += 1
+            if getattr(a, "_boost", False):
+                a.house_boost_ticks += 1
+            top = self.geo.surface(a.pos[0], a.pos[1])
+            if top - self.geo.ground(a.pos[0], a.pos[1]) > 2.0 and abs(a.pos[2] - top) < 2.5:
+                a.house_roof_ticks += 1
 
     def _walk_surface(self, x, y, feet_z):
         """Pick terrain or a reachable roof; a bridge does not support a mech below it."""
@@ -1543,9 +1781,25 @@ class Match:
             remaining-=len(tied)
         for j,a in enumerate(alive):place[a.id]=j+1
         target=self.actors[actor_id]
+        house_gun = {}
+        house_motion = {}
+        for tier in range(1, 5):
+            group = [a for a in mechs if a.id != 0 and a.house_tier == tier]
+            house_gun[tier] = {"shots": sum(a.gun_shots for a in group),
+                               "hits": sum(a.gun_mech_hits for a in group),
+                               "hunt_shots": sum(a.gun_hunt_shots for a in group),
+                               "hunt_hits": sum(a.gun_hunt_hits for a in group)}
+            ticks = sum(a.house_ticks for a in group)
+            house_motion[tier] = {
+                "moving": sum(a.house_moving_ticks for a in group),
+                "boosting": sum(a.house_boost_ticks for a in group),
+                "roof": sum(a.house_roof_ticks for a in group),
+                "ticks": ticks,
+            }
         return {"place":place.get(actor_id,16),"kills":target.kills,
                 "death_time":target.death_time,"cause":target.death_cause,
                 "placements":place,"alive":len(alive),"time":self.t,
+                "house_gun":house_gun,"house_motion":house_motion,
                 "actors":[{"id":a.id,"place":place.get(a.id),"kills":a.kills,
                            "death_time":a.death_time,"cause":a.death_cause,"hp":a.hp} for a in mechs]}
 

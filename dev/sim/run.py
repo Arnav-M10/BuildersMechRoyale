@@ -323,6 +323,38 @@ def main(argv=None):
         hist={p:sum(1 for r in results if r["place"]==p) for p in range(1,17)}
         print("mean (16-place): %.3f"%(sum(scores)/len(scores)))
         print("placement histogram: "+" ".join("%d:%d"%(p,hist[p]) for p in range(1,17)))
+        house_gun = {tier: {"shots": 0, "hits": 0, "hunt_shots": 0, "hunt_hits": 0}
+                     for tier in range(1, 5)}
+        for result in results:
+            for tier, counts in result.get("house_gun", {}).items():
+                for key in house_gun[int(tier)]:
+                    house_gun[int(tier)][key] += counts[key]
+        labels = {1: "easy", 2: "medium", 3: "hard", 4: "expert"}
+        print("house gun hits on mechs: " + " | ".join(
+            "%s %d/%d = %.1f%%" % (labels[tier], house_gun[tier]["hits"],
+                                    house_gun[tier]["shots"],
+                                    100.0 * house_gun[tier]["hits"] /
+                                    max(1, house_gun[tier]["shots"]))
+            for tier in range(1, 5)))
+        print("house hunter hits on contestant: " + " | ".join(
+            "%s %d/%d = %.1f%%" % (labels[tier], house_gun[tier]["hunt_hits"],
+                                    house_gun[tier]["hunt_shots"],
+                                    100.0 * house_gun[tier]["hunt_hits"] /
+                                    max(1, house_gun[tier]["hunt_shots"]))
+            for tier in range(1, 5)))
+        house_motion = {tier: {"moving": 0, "boosting": 0, "roof": 0, "ticks": 0}
+                        for tier in range(1, 5)}
+        for result in results:
+            for tier, counts in result.get("house_motion", {}).items():
+                for key in house_motion[int(tier)]:
+                    house_motion[int(tier)][key] += counts[key]
+        print("house movement: " + " | ".join(
+            "%s moving %.1f%% boost %.1f%% roof %.1f%%" % (
+                labels[tier],
+                100.0 * house_motion[tier]["moving"] / max(1, house_motion[tier]["ticks"]),
+                100.0 * house_motion[tier]["boosting"] / max(1, house_motion[tier]["ticks"]),
+                100.0 * house_motion[tier]["roof"] / max(1, house_motion[tier]["ticks"]))
+            for tier in range(1, 5)))
         for r in results:
             print("match %d seed %d: place %d score %d kills %d death %s cause %s time %.1fs timeouts %d invalid %d" %
                   (r["match"],r["seed"],r["place"],16-r["place"],r["kills"],

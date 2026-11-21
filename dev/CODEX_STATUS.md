@@ -50,7 +50,51 @@ Per-match outcomes:
 
 ## Fidelity limits
 
-This is a useful fast comparison harness, not a replica of the real server. Movement uses sampled grid collisions and simplified roof/overhang handling; trees and canopy do not block simulator vision; projectile and splash collision use discrete samples; NPC and house behavior are deliberately simple. The squad's hunter count ramps up as mechs are eliminated, with the strongest tiers sent first.
+This is a fast comparison harness, not a replica of the real server. Movement uses sampled grid collisions and simplified roof/overhang handling; trees and canopy do not block simulator vision; projectile and splash collision use discrete samples. The initial house behavior was under-calibrated; see the updated model and measured results below.
 
-The offline score of 8.625 is materially above the reported real-server score of 3.56. Treat the absolute score as uncalibrated and use repeated seed-matched comparisons between bot versions until the house behavior is tuned closer to the real practice bots.
+The initial offline score of 8.625 was materially above the reported real-server score of 3.56. The calibration update below supersedes the initial house-ordering and score notes.
+
+## Calibration
+
+Updated `dev/sim/engine.py` to send hunters weakest-first (easy, medium, hard, expert). Hunter count starts at one and rises with both match time and house deaths, reaching the full roster by 65% of match time or after four house deaths. Non-hunters roam/loot and defend themselves, but do not attack other house bots. House weapon preference is laser, lightning, mortar; the gun is retained. Offer choice follows the replay's early upgrade order: plating, gun damage, gun magazine, armor, gun rate, nanites, then laser damage.
+
+House movement now includes tier-specific reaction time, aim error/lead, strafing, boost use, roof goals, weapon looting, and retreat behavior. Hunter routes use `Geo.nav` when the direct route is blocked. Jet movement applies vertical acceleration and gravity, respects `max_rise_speed` and jet drain, and permits airborne traversal over steep grid slopes and walls.
+
+### Replay anchors and calibration
+
+I mined the 11 complete records in `dev/live_matches.json` (the final entry is a one-frame stub). Their house builds averaged 28.0% gun hits (`3028/10797` mech hits from house gunfire); per-build rates ranged from 18.1% for `probe-astra-skirmish` to 48.8% for `probe-red-best`, with `house:expert` at 48.0%. This supports distinct tiers rather than one shared aim profile. The supplied replay measurements also anchor movement (median 11.7 m/s, boosting 17% of frames, <6% below 1 m/s), roof occupancy (8–28%), weapon ranges, loadouts, and upgrade order.
+
+### Main-bot benchmark
+
+Ran 48 matches, seeds 17–64, with schema validation enabled, four worker processes, and the unchanged runner CLI. The tested bot was a byte-identical snapshot of `../BuildersMechRoyale/bot.py` and `geo.py` copied into the worktree for the run; the temporary snapshot has been removed. Mean score was **2.958** (`16 - place`), within the requested 3.5 +/- 0.7 target. There were no bot timeouts or invalid actions.
+
+| Place | Matches |
+|---:|---:|
+| 8 | 2 |
+| 9 | 2 |
+| 10 | 2 |
+| 12 | 7 |
+| 13 | 13 |
+| 14 | 13 |
+| 15 | 7 |
+| 16 | 2 |
+
+Contestant deaths had median time **52.3 s** and all occurred before 240 s. Causes: 33 gun, 11 laser, 3 lightning, 1 NPC. Thus 44/48 deaths were due to gun or laser, usually early as requested. Hunter gun accuracy while aiming at the contestant, split by tier, was:
+
+| Tier | Hits / shots | Hit rate |
+|---|---:|---:|
+| Easy | 393 / 2,830 | 13.9% |
+| Medium | 419 / 2,354 | 17.8% |
+| Hard | 380 / 1,051 | 36.2% |
+| Expert | 298 / 566 | 52.7% |
+
+This focus-target metric excludes shots at NPCs and is not directly comparable to the replay's all-target FFA rate. Weighted house movement was 97.9% of frames at >=1 m/s, boost 16.3%, and roof occupancy 9.7%. By tier, moving/boost/roof percentages were easy 93.7/11.8/7.8, medium 99.7/16.1/6.9, hard 99.4/17.5/8.3, and expert 99.2/21.0/17.7. Boost use is close to replay; expert roof occupancy remains below the replay's cited 28%.
+
+### Stadium jet check
+
+Started a mech in the stadium bowl near `(-225, 54)` and commanded jump + boost toward `(53, -143)`. The start was outside the walkable nav region; the mech re-entered walkable nav after **1.55 s** of jetting. The run reached the configured 10 m/s rise cap, drained jet energy, cleared the steep slope, and continued toward the destination. House roof occupancy above is measured from physics positions, confirming simulated landings on roofs.
+
+### Fidelity limits
+
+The current score is calibrated to the target band but remains an approximation. In particular, the subject-focused hunter gun hit rate (21.9% pooled) uses a different target mix than replay FFA gun accuracy (28.0%); simplified NPC/house target selection, sparse sampled roof geometry, and coarse collision/projectile handling still affect outcomes. The expert tier's 17.7% roof occupancy under-represents the 28% replay anchor. Use seed-matched comparisons and treat small score deltas cautiously.
 
