@@ -93,6 +93,12 @@ def lead_vel(v, pv, T):
     return a * v[0] + b * pv[0], a * v[1] + b * pv[1]
 
 
+def in_safe_zone(brain, obs, px, py, t):
+    """True when we can afford to sit still for ~20 s here without the zone reaching us."""
+    cx, cy, cr = Brain.zone_at(obs.get("zone") or {}, t + 20.0)
+    return hyp(px - cx, py - cy) < cr - 10.0
+
+
 class Brain:
     def __init__(self, hello):
         cfg = hello.get("config") or {}
@@ -1064,6 +1070,18 @@ class Brain:
     def wander(self, obs, me, t, px, py, pz, hpf, energy, kinds, threats, zx, zy, zr, lx, ly, lr,
                nx_, ny_, nr, ss, farm):
         """Loot, then hold a covered spot inside the next zone."""
+        # regen discipline: hurt and recently in a fight -> stand still somewhere hidden until healed
+        # (regen needs 5 s without damage dealt/taken; standing still is also silent)
+        if hpf < 0.85 and t - max(self.last_hurt, self.last_hit_dealt) < 40.0 and in_safe_zone(self, obs, px, py, t):
+            recent = [e for e in self.enemies.values() if t - e["seen"] < 15.0]
+            if recent:
+                if self.cover_goal is None or t - self.cover_t > 3.0:
+                    c = self.find_cover(px, py, recent, lx, ly, lr)
+                    self.cover_t = t
+                    self.cover_goal = c
+                if self.cover_goal is not None and hyp(self.cover_goal[0] - px, self.cover_goal[1] - py) > 1.5:
+                    return self.nav_to(px, py, self.cover_goal[0], self.cover_goal[1]), False, "regen-go"
+            return (0.0, 0.0), False, "regen"
         goals = []
         # time we have before we must head for the next circle
         dn = hyp(px - nx_, py - ny_)
