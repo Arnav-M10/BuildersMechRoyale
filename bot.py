@@ -68,6 +68,8 @@ P = {
     "ffa_fast": False,    # latch FFA on 2 (not 3) unexplained deaths before the first zone shrink
     "ffa_juke": False,    # FFA only: timed laser juke (laser_dodge) once FFA is latched
     "ffa_econ": False,    # FFA only: TTUN-style farming (drones/crates/drops/cubes) when not fighting
+    "fightboost": 0.0,    # >0: boost throughout fights when energy is above this (not while charging a laser;
+                          #     with lightning only above 60), as in giddygiddyboy's 6.00 squad params
     "lurk_t": 75.0,       # ffa_lurk lasts until this match time...
     "lurk_alive": 9,      # ...or until this many mechs are left
     "salt": 0,            # mixed into the RNG seed (strafe timing etc.); the strategy itself is unchanged
@@ -250,6 +252,7 @@ class Brain:
         self.dmg_out = []
         self.kill_spots = []
         self.gun_busy = False
+        self.laser_charging_now = False
         self.has_special = False
         self.muzzle_h = 7.0
         self.eye_h = 8.0
@@ -569,6 +572,7 @@ class Brain:
         alive = int(obs.get("alive", 16))
         ffa_active = self.ffa and P["ffa_engage"]
         self.gun_busy = False
+        self.laser_charging_now = any(w and w.get("kind") == "laser" and (w.get("charge") or 0) > 0 for w in (me.get("weapons") or []))
         self.has_special = any(w and w.get("kind") in ("laser", "lightning") for w in (me.get("weapons") or []))
         self.muzzle_h = float((me.get("stats") or {}).get("muzzle_height", 7.0))
         self.eye_h = float((me.get("stats") or {}).get("eye_height", 8.0))
@@ -1587,6 +1591,8 @@ class Brain:
             mv = (ax * radial * 0.8 + sx, ay * radial * 0.8 + sy)
         boost = energy > 55 and d > 60 and not has_lit
         if radial < 0 and d < rmin * 0.6 and energy > 30:
+            boost = True
+        if P["fightboost"] > 0 and energy > P["fightboost"] and not self.laser_charging_now and (not has_lit or energy > 60):
             boost = True
         return mv, boost, "fight%d" % int(d)
 
