@@ -163,3 +163,4 @@ Final config pooled: 12.2 pts/match over 16 live matches.
 ### Codex FFA code review → 3 fixes (FFA-only paths): target grace now from selection time (was renewing forever), lurk 25/30 m hysteresis, latched heal no longer overridden by hold/loot. Kept the 2-death latch (s2F proved it never latches on the practice seeds).
 | Sat 7:57 AM (Mac) | `b7c0092` (s2G) | salt 2 + full FFA package + review fixes: expect exactly 5.29, then re-pick | **5.29 exactly → PICKED as final entry** |
 Live smoke test of s2G running (16 matches, rooms 2 and 5).
+Fixed-code draws (use these, not s14F-s17F): see exp/s18G..s23G branches.
