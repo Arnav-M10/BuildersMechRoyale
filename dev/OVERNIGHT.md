@@ -65,4 +65,4 @@ v10 (`575bceb`, slower strafing) built and checked; submit at the next paced slo
 - A fitted logistic "odds" model (HP ratio, cubes, weapon count, busy-ness) decides fights in FFA.
 Built as knobs: `selfcomp` (muzzle compensation). Next: reload-duck.
 
-| Sat 3:22 AM (Mac) | `d8eeec4` (exp/v11) | v6 + 145 m with a laser | scoring… |
+| Sat 3:22 AM (Mac) | `d8eeec4` (exp/v11) | v6 + 145 m with a laser | 5.13 (= v5; neutral) |
