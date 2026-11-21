@@ -179,9 +179,10 @@ Verdict: neutral within noise; final config stays s2G (no farming). FFA tuning i
 giddygiddyboy jumped 5.54 → 6.00 with new squad params: FightBoost 40 (boost throughout fights when energy > 40), Lethal laser, Finish 20, Stick 200, LowBonus 200, HPw 0.1.
 Testing `fightboost=40` on 3 salts: fb2 `6aec670` (paired with salt 2 = 5.29), fb30 `3b461be`, fb31 `fc4beba` (full FFA package included; docker-checked).
 | Sat 9:01 AM (Mac) | `6aec670` (fb2) | fightboost 40 + salt 2 + FFA pkg (paired vs 5.29) | 4.73 |
-| Sat 9:20 AM (Mac) | `3b461be` (fb30) | fightboost 40 + salt 30 + FFA pkg | scoring… |
+| Sat 9:20 AM (Mac) | `3b461be` (fb30) | fightboost 40 + salt 30 + FFA pkg | 4.90 |
 
 ## Re-think (9:20 AM Mac): single-draw tests are within ±0.25 noise, so select (4.79) / posearch (4.98) etc. were inconclusive, not failures. giddygiddyboy's whole practice core = 6.00 vs our ≈4.93.
 Codex dispatched to port giddy's full practice core as P["core"]="giddy" (faithful rules + numbers, our own code), to be judged on 3–4 draws.
 
 ### FFA live: fightboost 40 (16): 15,5,1,3,11,2,2,2,5,2,2,16,1,11,16,11 → 9.4 vs final config (8): 1,1,6,13,5,1,8,1 → 11.5. Fightboost hurts FFA → made practice-only (disabled once FFA latches). Note: fb2/fb30/fb31 branches predate this gating; a winning fb draw must be rebuilt with gating + re-verified before picking.
+| Sat 9:30 AM (Mac) | `fc4beba` (fb31) | fightboost 40 + salt 31 + FFA pkg | scoring… |
