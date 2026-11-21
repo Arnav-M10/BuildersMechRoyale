@@ -122,3 +122,4 @@ Salt draws so far (same strategy): 5.10, 4.75, 5.29, 4.79, 4.73 → mean ≈ 4.9
 
 ## Codex FFA round → knobs ffa_lurk (opening: only attackers / <25 m until t=75 s or ≤9 alive), ffa_end (≤4 alive: only attackers or weak close mechs; hold 0.3·r when r ≤ 70), ffa_heal (FFA-only retreat-and-heal with 75% resume).
 Live 3-arm test running (8 matches each): A = layer, B = layer + lurk + end, C = layer + heal.
+Note: first match in all 3 arms died at ~16 s (place 15-16) before the FFA detector latched; the berserk core fights everything until latch. Candidate fix later: faster/earlier FFA evidence.
