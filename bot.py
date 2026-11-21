@@ -67,6 +67,7 @@ P = {
     "ffa_heal": False,    # FFA only: disengage when ganged/losing the race, heal in cover, resume at 75% HP
     "ffa_fast": False,    # latch FFA on 2 (not 3) unexplained deaths before the first zone shrink
     "ffa_juke": False,    # FFA only: timed laser juke (laser_dodge) once FFA is latched
+    "ffa_econ": False,    # FFA only: TTUN-style farming (drones/crates/drops/cubes) when not fighting
     "lurk_t": 75.0,       # ffa_lurk lasts until this match time...
     "lurk_alive": 9,      # ...or until this many mechs are left
     "salt": 0,            # mixed into the RNG seed (strafe timing etc.); the strategy itself is unchanged
@@ -927,7 +928,7 @@ class Brain:
             if s < bs:
                 rec = {"id": cid, "pos": pos, "kind": "crate", "hp": chp, "vel": [0, 0, 0]}
                 best, bs = rec, s
-        if hpf > (0.5 if P["econ"] else 0.6):
+        if hpf > (0.5 if (P["econ"] or (self.ffa and P["ffa_econ"])) else 0.6):
             for n in self.npcs.values():
                 if self.t - n["seen"] > 0.01:
                     continue
@@ -1662,7 +1663,7 @@ class Brain:
             ks = self.kill_loot(t, px, py, threats)
             if ks is not None:
                 return self.nav_to(px, py, ks[0], ks[1]), energy > 50, "killloot"
-        if P["econ"]:
+        if P["econ"] or (self.ffa and P["ffa_econ"]):
             r = self.econ_goal(obs, t, px, py, pz, hpf, kinds, zx, zy, zr)
             if r is not None:
                 gx, gy, why = r
