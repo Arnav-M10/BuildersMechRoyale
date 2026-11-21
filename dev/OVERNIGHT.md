@@ -268,5 +268,6 @@ STRATEGY FOR #1: the final is 64 FFA matches among the top 16, ~11 of which run 
 Snapshot diffs: giddy2→giddy3 (5.25→6.17) = FightBoost removed, LethalK .7, HPw .1→.21. giddy3→giddy4 (6.17→5.67) = ONLY HPw .21→.18 and LootRadius 150→120. → Params matter a lot; trend says higher HPw / wider loot.
 Queue (Go, all from go-giddy3): gp-hpw25 `b9e44f2`, gp-hpw30 `ba7cd5c`, gp-loot180 `5a7b5f1`, gp-lk60 `94ac400`, gp-hpw25-loot180 `83e7442`; salts gg3s2..8.
 Salt swing on the Go bot ≈ ±0.25 (6.17 vs 5.92). Single-draw param tests are weak evidence.
-| Sat 3:23 PM (Mac) | `83e7442` (gp-hpw25-loot180) | go-giddy3 + HPw .25 + LootRadius 180 | scoring… |
+| Sat 3:23 PM (Mac) | `83e7442` (gp-hpw25-loot180) | go-giddy3 + HPw .25 + LootRadius 180 | 5.85 |
 ### FFA live (3:15 PM): our Python + FFA pkg (8): 1,6,5,11,8,9,1,5 → 10.25. Go bot live run relaunched (first launch failed: zsh didn't split the docker command).
+| Sat 3:37 PM (Mac) | `272ce24` (gg3s2) | go-giddy3 + salt 2 | scoring… |
