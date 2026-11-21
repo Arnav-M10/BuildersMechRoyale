@@ -219,3 +219,5 @@ gn (giddy + nav/cover/stuck) 3 draws 5.10/5.21/5.21 (mean 5.17, σ≈0.06) → s
 | Sat 12:33 PM (Mac) | `2333e0b` (gn46) | gn + salt 46 | 5.27 |
 gn 4 draws mean 5.12. Codex dispatched (12:25): structural port — clearance raster nav (g_clear), EscapePlan (g_escape), laser pre-charge (g_laserpre), NPC memory (g_npcmem).
 gn 5 draws mean 5.15. Codex structural port merged (default off; dev/GIDDY_STRUCT.md). Full-port draws: gs47 `bd81420`, gs48 `535abef`, gs2 `c1d4e9d` (docker PASS). Live FFA safety run of gs47 started.
+### FFA live gs47 (18): 1,5,12,5,2,1,10,5,4,1,2,6,3,10,2,11,2,6 → 11.1, no errors.
+| Sat 12:56 PM (Mac) | `bd81420` (gs47) | giddy + full structural port + salt 47 | scoring… |
