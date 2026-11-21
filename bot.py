@@ -28,7 +28,8 @@ P = {
     "g_fb": True,         # giddy core FightBoost 40 (giddy3 removed it)
     "g_nav": False,       # deeper, closer-to-source giddy path follower
     "g_cover": False,     # source-style reachable-cell cover BFS
-    "g_stuck": False,     # shorter grounded stuck threshold from giddy3
+    "g_stuck": False,
+    "g_drops": 0.0,       # giddy core: >0 = value of a supply drop (full HP + energy + 3 cubes) in the loot chooser     # shorter grounded stuck threshold from giddy3
     "g_clear": False,     # clearance-weighted giddy paths (costlier than the default A*)
     "g_escape": False,    # source EscapePlan launch/landing and roof-following jet
     "g_laserpre": False,  # begin charging a visible in-range laser before aim alignment
@@ -1445,6 +1446,12 @@ class Brain:
                     elif kind == "crate" and farm is not None and farm.get("kind") == "crate":
                         mv = unit(px - pos[0], py - pos[1]) if d < 12.0 else (0.0, 0.0)
                         label = "loot:crate"
+                    elif kind == "drop" and d < 3.5:
+                        mv, label = (0.0, 0.0), "loot:drop-hold"
+                    elif kind == "drop":
+                        mv = self.nav_to(px, py, pos[0], pos[1])
+                        boost = boost or (energy > 45 and d > 30.0)
+                        label = "loot:drop"
                     else:
                         mv = self.nav_to(px, py, pos[0], pos[1])
                         label = "loot:" + kind
@@ -2405,6 +2412,22 @@ class Brain:
                 for nid, n in self.npcs.items():
                     if now - n.get("seen", -99.0) < 12.0 and hyp(n["pos"][0] - px, n["pos"][1] - py) < 150.0:
                         consider("npc", nid, n["pos"], 85.0)
+        if P["g_drops"] > 0:
+            my_id = me.get("id")
+            for dr in obs.get("drops") or []:
+                pos = dr.get("pos")
+                if not pos:
+                    continue
+                holder = dr.get("holder")
+                if holder is not None and holder != my_id and float(dr.get("progress") or 0.0) > 1.0:
+                    continue  # someone else is already capturing it
+                d_ = hyp(pos[0] - px, pos[1] - py)
+                if d_ > 220.0:
+                    continue
+                if float(dr.get("lands_in", 0.0)) > d_ / max(1.0, walk) + 12.0:
+                    continue  # too early: don't camp in the open
+                v = P["g_drops"] * (1.6 if hpf < 0.6 else 1.0)
+                consider("drop", dr.get("id"), pos, v)
         if best is None:
             self.giddy_loot_id = None
             return None
