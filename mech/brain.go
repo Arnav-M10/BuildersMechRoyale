@@ -150,8 +150,6 @@ type Params struct {
 	DodgeBoost  float64
 	ThreatBoost float64
 	SpeedUp     bool
-	Backstab    float64
-	LethalK     float64
 }
 
 func DefaultParams() Params {
@@ -584,9 +582,6 @@ func (b *Brain) step(o *Obs, act *Action) {
 		if b.P.Stick > 0 && t.ID == b.stickID && now-b.stickAt < 2 {
 			s -= b.P.Stick
 		}
-		if b.P.Backstab > 0 && b.showsBack(t, x, y) {
-			s -= b.P.Backstab
-		}
 		if now-t.HitMe < 4 {
 			s -= 40
 		}
@@ -1005,14 +1000,7 @@ func (b *Brain) step(o *Obs, act *Action) {
 					if holds(target.Weapons, "mortar") {
 						dmg *= 1 + w.Stats.Cookoff
 					}
-					lk := 0.8
-					if b.P.LethalK > 0 {
-						lk = b.P.LethalK
-					}
-					if b.P.Backstab > 0 && b.showsBack(target, x, y) {
-						dmg *= b.rearMult()
-					}
-					if dmg*lk >= target.HP && math.Abs(angDiff(hy, me.Aim[0])) < tolY*0.9 && math.Abs(hp-me.Aim[1]) < tolP {
+					if dmg*0.8 >= target.HP && math.Abs(angDiff(hy, me.Aim[0])) < tolY*0.9 && math.Abs(hp-me.Aim[1]) < tolP {
 						aim = [2]float64{hy, hp}
 						act.Fire[i] = false
 						break
@@ -1969,10 +1957,9 @@ func squadParams(p Params) Params {
 	p.Lethal = true
 	p.Finish = 20
 	p.Stick = 200
+	p.HPw = 0.1
 	p.LowBonus = 200
-	p.LethalK = 0.7
-	p.HPw = 0.18
-	p.LootRadius = 120
+	p.FightBoost = 40
 
 	return p
 }
@@ -1983,19 +1970,4 @@ func (b *Brain) cubeCap() int {
 		c = g
 	}
 	return c
-}
-
-func (b *Brain) rearMult() float64 {
-	if m := b.Cfg.Mech.RearMult; m > 1 {
-		return m
-	}
-	return 1
-}
-
-func (b *Brain) showsBack(t *Track, x, y float64) bool {
-	arc := b.Cfg.Mech.FrontArcDeg
-	if arc <= 0 {
-		arc = 180
-	}
-	return math.Abs(angDiff(t.Aim[0], math.Atan2(y-t.Pos[1], x-t.Pos[0]))) > arc*math.Pi/360+0.1
 }
