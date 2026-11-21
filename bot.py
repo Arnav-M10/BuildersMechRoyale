@@ -22,6 +22,7 @@ BOT_NAME = "oval-warden"
 
 # Strategy knobs (tuned by A/B submissions on the fixed practice seeds)
 P = {
+    "core": "ours",       # "ours" or giddygiddyboy's practice-squad core
     "chase": True,        # push toward a target we cannot see when healthy
     "retreat_hp": 0.38,   # break line of sight below this HP fraction
     "laser_band": (50.0, 120.0),
@@ -133,6 +134,14 @@ UPGRADE_RANK = [
     "mortar_reload", "mortar_velocity", "mortar_splash",
 ]
 
+# giddy2 DefaultParams with squadParams(LaserUp=true) applied (brain.go:446-450, 1940-1964).
+GIDDY_LASER_UPGRADE_RANK = [
+    "plating", "armor", "laser_damage", "laser_charge", "nanites", "gun_damage", "gun_rate",
+    "lightning_efficiency", "lightning_range", "servos", "gun_mag", "gun_velocity", "gyros",
+    "lightning_chain", "reactor", "capacitor", "mortar_reload", "mortar_splash", "mortar_velocity",
+    "sensors", "jets", "laser_pierce",
+]
+
 
 def lead_vel(v, pv, T):
     """Effective horizontal velocity for leading a shot T seconds ahead. Fitted on 62k samples of
@@ -230,12 +239,18 @@ class Brain:
         self.charge_seen = {}   # enemy id -> time we first saw it charging
         self.hints = []         # (t, bearing, weight) threat directions from sounds/damage
         self.last_hurt = -99.0
+        self.giddy_last_hurt = -99.0
+        self.giddy_hurt_bearing = 0.0
+        self.giddy_npc_hurt = -99.0
+        self.giddy_npc_bearing = 0.0
         self.last_hit_dealt = -99.0
         self.shorted_until = -1.0
         self.take_block = {}
         self.target_id = None
         self.target_since = 0.0
         self.target_t_last = -99.0
+        self.giddy_stick_id = None
+        self.giddy_stick_at = -99.0
         self.strafe = 1.0
         self.strafe_until = 0.0
         self.path = None
@@ -263,6 +278,18 @@ class Brain:
         self.cover_goal = None
         self.cover_t = -99.0
         self.home = None
+        self.giddy_last_threat_at = -100.0
+        self.giddy_lose_at = -1.0
+        self.giddy_retreat = False
+        self.giddy_bad = {}
+        self.giddy_loot_id = None
+        self.giddy_loot_since = -99.0
+        self.giddy_main_comp = -1
+        if self.geo is not None:
+            try:
+                self.giddy_main_comp = self.geo.main_comp()
+            except Exception:
+                pass
         self.home_key = None
         self.scan_yaw = None
         self.prev_hp = None
@@ -409,6 +436,12 @@ class Brain:
                 by = ev.get("by")
                 if by is not None:
                     self.attacked_by[by] = t
+                    self.giddy_last_hurt = t
+                    if ev.get("bearing") is not None:
+                        self.giddy_hurt_bearing = float(ev["bearing"])
+                if ev.get("weapon") == "npc" and ev.get("bearing") is not None:
+                    self.giddy_npc_hurt = t
+                    self.giddy_npc_bearing = float(ev["bearing"])
                 b = ev.get("bearing")
                 if b is not None:
                     self.hints.append((t, float(b), 3.0))
@@ -542,6 +575,13 @@ class Brain:
     def choose_upgrade(self, offer):
         ch = offer.get("choices") or []
         best, bi = 1e9, 0
+        if P["core"] == "giddy":
+            for i, c in enumerate(ch):
+                cid = c.get("id")
+                r = GIDDY_LASER_UPGRADE_RANK.index(cid) if cid in GIDDY_LASER_UPGRADE_RANK else 50
+                if r < best:
+                    best, bi = r, i
+            return bi
         for i, c in enumerate(ch):
             cid = c.get("id")
             rank = UPGRADE_RANK_ECON if (P["econ"] or P["upg"] == "econ") else (
@@ -571,11 +611,13 @@ class Brain:
         self.update_ffa(obs, me, t)
         alive = int(obs.get("alive", 16))
         ffa_active = self.ffa and P["ffa_engage"]
+        core_giddy = P["core"] == "giddy"
         self.gun_busy = False
         self.laser_charging_now = any(w and w.get("kind") == "laser" and (w.get("charge") or 0) > 0 for w in (me.get("weapons") or []))
         self.has_special = any(w and w.get("kind") in ("laser", "lightning") for w in (me.get("weapons") or []))
         self.muzzle_h = float((me.get("stats") or {}).get("muzzle_height", 7.0))
         self.eye_h = float((me.get("stats") or {}).get("eye_height", 8.0))
+        self.mech_height = float((me.get("stats") or {}).get("height", 9.0))
         self.pz_now = float(me["pos"][2])
         for w in (me.get("weapons") or []):
             if w and w.get("kind") == "gun" and ((w.get("reload") or 0) > 0.25 or (w.get("ammo") is not None and w.get("ammo") <= 0)):
@@ -609,6 +651,7 @@ class Brain:
         muzzle = (px, py, mz)
 
         zone = obs.get("zone") or {}
+        self._giddy_zone = zone
         zx, zy, zr = self.zone_at(zone, t)
         lx, ly, lr = self.zone_at(zone, t + 6.0)
         nx_, ny_ = (zone.get("next_center") or [zx, zy])[:2]
@@ -625,7 +668,7 @@ class Brain:
             cands.append((d, e))
         cands.sort(key=lambda c: c[0])
         tlist = []
-        for d, e in cands[:(len(cands) if ffa_active else (10 if P["tsel"] else 6))]:
+        for d, e in cands[:(len(cands) if (ffa_active or core_giddy) else (10 if P["tsel"] else 6))]:
             ex, ey, ez = e["pos"]
             sc = 1.0 + self.size_per_cube * float(e.get("cubes") or 0)
             com = (ex, ey, ez + 4.5 * sc)
@@ -647,11 +690,34 @@ class Brain:
         for e in tlist:
             d = e["dist"]
             ehp = e.get("hp") or 1400.0
+            if core_giddy:
+                e["engage"] = late or self.engageable(e, px, py, t, vx, vy)
             if ffa_active and not self.ffa_engageable(e, t, alive, hpf, current_target_id):
                 if avoid is None or d < avoid["dist"]:
                     avoid = e
                 continue
-            if P["select"] and not late and not self.engageable(e, px, py, t):
+            if core_giddy:
+                if not e["engage"] or not e["los"] or d > 240.0:
+                    continue
+                emax = e.get("max_hp") or 1400.0
+                s = d + 0.1 * float(ehp)
+                if float(ehp) <= 0.3 * float(emax):
+                    s -= 200.0
+                if e["id"] == self.giddy_stick_id and t - self.giddy_stick_at < 2.0:
+                    s -= 200.0
+                if t - self.attacked_by.get(e["id"], -99.0) < 4.0:
+                    s -= 40.0
+                ex_, ey_ = e["pos"][0], e["pos"][1]
+                ux_, uy_ = unit(px - ex_, py - ey_)
+                ev_ = e.get("vel") or [0.0, 0.0, 0.0]
+                closing = (ev_[0] - vx) * ux_ + (ev_[1] - vy) * uy_
+                e["closing"] = closing
+                if closing > 3.0:
+                    s -= 15.0
+                if s < best:
+                    best, target = s, e
+                continue
+            if P["select"] and not late and not self.engageable(e, px, py, t, vx, vy):
                 continue
             emax = e.get("max_hp") or 1400.0
             s = d
@@ -696,24 +762,77 @@ class Brain:
             self.target_since = t
         if target is not None:
             self.target_t_last = t
+            if core_giddy:
+                self.giddy_stick_id, self.giddy_stick_at = target["id"], t
         if target is None:
             self.target_id = None
 
         threats = [e for e in self.enemies.values() if t - e["seen"] < 8.0]
         visible_threats = [e for e in tlist if e["los"]]
+        giddy_danger = False
+        if core_giddy:
+            giddy_danger, _, _, _ = self.giddy_combat_state(t, me, tlist, threats, target, hpf)
+            self._giddy_current_loot = (self.giddy_choose_loot(obs, hpf, giddy_danger, kinds)
+                                        if not ffa_active and target is None else None)
+        else:
+            self._giddy_current_loot = None
 
         # NPCs attacking us
         npc_target = None
-        for n in self.npcs.values():
-            if t - n["seen"] > 0.01:
-                continue
-            d = hyp(n["pos"][0] - px, n["pos"][1] - py)
-            n["dist"] = d
-            if t - self.attacked_by.get(n["id"], -99) < 4.0 or d < 40.0:
-                if npc_target is None or d < npc_target["dist"]:
-                    npc_target = n
+        if core_giddy:
+            if t - self.giddy_npc_hurt < 3.0:
+                best_off = 0.7
+                for n in self.npcs.values():
+                    if t - n["seen"] > 0.5:
+                        continue
+                    d = hyp(n["pos"][0] - px, n["pos"][1] - py)
+                    if d > 150.0:
+                        continue
+                    nc = self.cfg.get("npc") or {}
+                    com = (n["pos"][0], n["pos"][1], n["pos"][2] + float(nc.get("height", 4.0)) * 0.5)
+                    if not self.los(muzzle, com):
+                        continue
+                    off = abs(wrap(math.atan2(n["pos"][1] - py, n["pos"][0] - px) -
+                                   self.giddy_npc_bearing))
+                    if t - self.attacked_by.get(n["id"], -99.0) < 3.0:
+                        off = 0.0
+                    if off < best_off:
+                        best_off, npc_target = off, n
+                        n["dist"], n["los"] = d, True
+        else:
+            for n in self.npcs.values():
+                if t - n["seen"] > 0.01:
+                    continue
+                d = hyp(n["pos"][0] - px, n["pos"][1] - py)
+                n["dist"] = d
+                if t - self.attacked_by.get(n["id"], -99) < 4.0 or d < 40.0:
+                    if npc_target is None or d < npc_target["dist"]:
+                        npc_target = n
         if ffa_active and target is None and not P["ffa_econ"]:
             npc_target = None
+
+        giddy_farm = None
+        if core_giddy and not ffa_active and target is None:
+            if npc_target is not None:
+                giddy_farm = npc_target
+            else:
+                choice = self._giddy_current_loot
+                if choice is not None and choice["kind"] == "npc":
+                    n = self.npcs.get(choice["id"])
+                    if n is not None:
+                        d = hyp(n["pos"][0] - px, n["pos"][1] - py)
+                        com = (n["pos"][0], n["pos"][1], n["pos"][2] + float(self.npc_cfg.get("height", 4.0)) * 0.5)
+                        if t - n["seen"] < 1.0 and d < 75.0 and self.los(muzzle, com):
+                            giddy_farm = n
+                elif choice is not None and choice["kind"] == "crate":
+                    c = self.crates.get(choice["id"])
+                    if c is not None:
+                        pos, chp, seen = c
+                        d = hyp(pos[0] - px, pos[1] - py)
+                        cp = (pos[0], pos[1], pos[2] + float((self.cfg.get("crates") or {}).get("height", 5.0)) * 0.5)
+                        if d < 50.0 and self.los(muzzle, cp):
+                            giddy_farm = {"id": choice["id"], "pos": pos, "kind": "crate", "hp": chp,
+                                          "vel": [0.0, 0.0, 0.0]}
 
         ffa_face_yaw = None
         if self.ffa and target is None and ((P["ffa_engage"] and avoid is not None) or
@@ -730,10 +849,12 @@ class Brain:
         shoot = None  # (point3, vel3, kind:'mech'/'npc'/'crate', radius, height, los)
         if target is not None:
             shoot = target
+        elif core_giddy and not ffa_active and giddy_farm is not None:
+            shoot = giddy_farm
         elif npc_target is not None:
             shoot = npc_target
-        farm = None
-        if shoot is None and not threats and (not ffa_active or P["ffa_econ"]):
+        farm = giddy_farm if core_giddy and not ffa_active else None
+        if not core_giddy and shoot is None and not threats and (not ffa_active or P["ffa_econ"]):
             farm = self.pick_farm(px, py, pz, muzzle, hpf, zx, zy, zr)
             if farm is not None:
                 shoot = farm
@@ -864,24 +985,31 @@ class Brain:
             if laser_w is not None and laser_charge > 0.0:
                 fire[laser_slot] = laser_charge < laser_full + laser_hold - 0.35
 
-        if aim_yaw is None:
+        if core_giddy and not (ffa_active and target is None):
+            aim_yaw, aim_pitch, fire = self.giddy_aim_fire(obs, shoot, slots, tlist)
+
+        if aim_yaw is None and not core_giddy:
             aim_yaw, aim_pitch = self.scan_aim(t, px, py, my_aim, threats, vx, vy)
         if ffa_face_yaw is not None:
             aim_yaw, aim_pitch = ffa_face_yaw, 0.0
 
-        act["aim"] = [round(aim_yaw, 4), round(aim_pitch, 4)]
         act["fire"] = fire
 
         # reload when idle
         if gun_w is not None and gun_w.get("ammo") is not None:
             gst = gun_w.get("stats") or {}
             mag = float(gst.get("mag", 12))
-            if (gun_w.get("reload") or 0) <= 0 and not fire[gun_slot]:
+            if core_giddy:
+                if (gun_w.get("reload") or 0) <= 0 and gun_w["ammo"] < mag and target is None and \
+                        farm is None and (gun_w["ammo"] <= mag * 0.6 or t - self.giddy_last_threat_at > 3.0):
+                    act["reload"] = True
+            elif (gun_w.get("reload") or 0) <= 0 and not fire[gun_slot]:
                 if gun_w["ammo"] <= 0 or (gun_w["ammo"] < mag * 0.5 and not visible_threats and shoot is None):
                     act["reload"] = True
 
         # ---------------------------------------------------------- weapon pickups
-        take = self.choose_take(px, py, pz, kinds, laser_charge)
+        take = (self.giddy_choose_take(px, py, pz, kinds, slots) if core_giddy else
+                self.choose_take(px, py, pz, kinds, laser_charge))
         if take is not None:
             act["take"] = take[0]
             if take[1] is not None:
@@ -896,6 +1024,11 @@ class Brain:
         n = hyp(mx, my)
         if n > 1.0:
             mx, my = mx / n, my / n
+        if core_giddy and aim_yaw is None:
+            aim_yaw, aim_pitch = self.giddy_idle_aim(t, px, py, mx, my, my_aim, stats)
+        if ffa_face_yaw is not None:
+            aim_yaw, aim_pitch = ffa_face_yaw, 0.0
+        act["aim"] = [round(aim_yaw, 4), round(aim_pitch, 4)]
         act["move"] = [round(mx, 3), round(my, 3)]
         act["boost"] = bool(boost)
         act["jump"] = bool(jump)
@@ -1106,12 +1239,14 @@ class Brain:
         self.safe_circle = (lx, ly, lr)
 
         mv = None
+        giddy_active = P["core"] == "giddy" and not (self.ffa and P["ffa_engage"])
         # ---- 1. mortar shells / bullets about to hit us
-        dodge = self.projectile_dodge(obs, px, py, pz, vx, vy)
+        dodge = None if giddy_active else self.projectile_dodge(obs, px, py, pz, vx, vy)
+        shell_dodge = self.giddy_dodge_shell(obs, px, py, pz, me) if giddy_active else None
 
         # ---- 2. zone emergency
         zone_push = None
-        if (not in_zone) or dz > lr - margin * 0.5:
+        if not giddy_active and ((not in_zone) or dz > lr - margin * 0.5):
             if lr > 1.0:
                 f = max(0.0, (lr - margin * 1.5)) / max(dz, 1e-6)
                 gx, gy = lx + (px - lx) * min(1.0, f), ly + (py - ly) * min(1.0, f)
@@ -1153,7 +1288,102 @@ class Brain:
         fight = target is not None and (target["los"] or t - self.attacked_by.get(target["id"], -99) < 3.0
                                          or target["dist"] < 120)
 
-        if zone_push is not None:
+        if giddy_active:
+            gx, gy = self.giddy_zone_goal(obs.get("zone") or {}, px, py)
+            zdist = hyp(gx - px, gy - py)
+            t_need = zdist * 1.45 / max(1.0, walk) + 4.0
+            deadline = self.giddy_zone_deadline(obs.get("zone") or {}, px, py, 8.0)
+            zone_must = (not in_zone) or t + t_need + 3.0 >= deadline
+            zone_should = t + t_need + 14.0 >= deadline
+            late = nr <= 70.0 or int(obs.get("alive", 16)) <= 3
+            hp_now = float(me.get("hp", 1.0))
+            finishing = target is not None and target["dist"] < 120.0 and (
+                float(target.get("hp") or 1400.0) < 200.0 or float(target.get("hp") or 1400.0) < hp_now * 0.5)
+            if shell_dodge is not None:
+                mv, boost, label = shell_dodge, energy > 15.0, "dodge-shell"
+            elif zone_must and zdist > 2.0:
+                mv = self.nav_to(px, py, gx, gy, allow_climb=True)
+                boost = (not in_zone or t + t_need >= deadline) and energy > 5.0
+                label = "zone"
+            elif self.giddy_retreat and not finishing and not late:
+                if self.cover_goal is None or t - self.cover_t > 0.4:
+                    recent_threats = [e for e in threats if t - e.get("seen", -99.0) <= 2.5]
+                    self.cover_goal = self.giddy_cover_goal(px, py, recent_threats, obs.get("zone") or {})
+                    self.cover_t = t
+                if self.cover_goal is not None and hyp(self.cover_goal[0] - px, self.cover_goal[1] - py) > 1.5:
+                    mv = self.nav_to(px, py, self.cover_goal[0], self.cover_goal[1])
+                    boost = energy > 10.0 and hyp(self.cover_goal[0] - px, self.cover_goal[1] - py) > 2.0
+                    label = "cover"
+                elif self.cover_goal is not None:
+                    mv, label = (0.0, 0.0), "hide"
+                elif target is not None:
+                    mv = self.giddy_fight_move(t, px, py, kinds, target, energy, tlist, 1.0)
+                    label = "cornered"
+                else:
+                    mv = self.nav_to(px, py, gx, gy, allow_climb=True)
+                    label = "flee"
+            elif target is not None:
+                weapons = [w for w in (me.get("weapons") or []) if w]
+                gw = next((w for w in weapons if w.get("kind") == "gun"), None)
+                lw = next((w for w in weapons if w.get("kind") == "laser"), None)
+                lit = next((w for w in weapons if w.get("kind") == "lightning"), None)
+                gs = (gw or {}).get("stats") or self.W.get("gun") or {}
+                ls = (lw or {}).get("stats") or self.W.get("laser") or {}
+                lts = (lit or {}).get("stats") or self.W.get("lightning") or {}
+                d = target["dist"]
+                ready = (gw is not None and float(gw.get("ammo", 0)) > 0 and
+                         float(gw.get("reload", 0.0)) <= 0.25 and d <= float(gs.get("range", 230.0)) - 10.0)
+                hot = (lw is not None and float(lw.get("charge", 0.0)) >= float(ls.get("charge", 0.75)) - 0.3 and
+                       d <= float(ls.get("range", 280.0)) - 5.0)
+                if hot or (lit is not None and d <= float(lts.get("range", 45.0)) + 6.0 and
+                           energy >= float(lts.get("energy", 3.0)) * 3.0):
+                    ready = True
+                if lit is not None or lw is not None:  # squadParams.Peek=false
+                    ready = True
+                want_los = 1.0 if ready else -1.0
+                crowd = sum(1 for e in tlist if e.get("engage") or
+                            (e.get("los") and e.get("dist", 1e9) < 150.0))
+                finish_range = (20.0 if float(target.get("hp") or 1400.0) <
+                                0.38 * float(target.get("max_hp") or 1400.0) and hpf > 0.42 and crowd <= 2 else None)
+                mv = self.giddy_fight_move(t, px, py, kinds, target, energy, tlist, want_los, finish_range)
+                if lit is not None and d > 50.0 and energy > 55.0 and want_los > 0.0:
+                    boost = True
+                if energy > 40.0 and not self.laser_charging_now and (lit is None or energy > 60.0):
+                    boost = True
+                radius = 70.0 * (0.57 if hpf <= 0.5 else 1.0)
+                nearest, nearest_d = None, radius
+                for cpos, seen in self.cubes_mem.values():
+                    d_cube = hyp(cpos[0] - px, cpos[1] - py)
+                    if d_cube < nearest_d:
+                        nearest, nearest_d = cpos, d_cube
+                if nearest is not None:
+                    mv = self.nav_to(px, py, nearest[0], nearest[1])
+                    label = "fight:cube"
+                else:
+                    label = "fight"
+            elif zone_should and zdist > 2.0:
+                mv = self.nav_to(px, py, gx, gy, allow_climb=True)
+                label = "zone"
+            else:
+                choice = getattr(self, "_giddy_current_loot", None)
+                if choice is not None:
+                    kind, pos = choice["kind"], choice["pos"]
+                    d = hyp(pos[0] - px, pos[1] - py)
+                    if kind == "npc" and farm is not None and farm.get("kind") == "npc":
+                        mv = self.giddy_fight_move(t, px, py, kinds, farm, energy, tlist, 1.0)
+                        label = "loot:npc"
+                    elif kind == "crate" and farm is not None and farm.get("kind") == "crate":
+                        mv = unit(px - pos[0], py - pos[1]) if d < 12.0 else (0.0, 0.0)
+                        label = "loot:crate"
+                    else:
+                        mv = self.nav_to(px, py, pos[0], pos[1])
+                        label = "loot:" + kind
+                elif zdist > 3.0:
+                    mv = self.nav_to(px, py, gx, gy, allow_climb=True)
+                    label = "zone-walk"
+                else:
+                    mv, label = (0.0, 0.0), "idle"
+        elif zone_push is not None:
             mv = self.nav_to(px, py, zone_push[0], zone_push[1], allow_climb=True)
             boost = (not in_zone) and energy > 20
             label = "zone"
@@ -1235,7 +1465,7 @@ class Brain:
                                            zx, zy, zr, lx, ly, lr, nx_, ny_, nr, ss, farm)
 
         # keep inside the (future) zone
-        if zone_push is None and mv is not None and (mv[0] or mv[1]):
+        if not giddy_active and zone_push is None and mv is not None and (mv[0] or mv[1]):
             fx, fy = px + mv[0] * 6.0, py + mv[1] * 6.0
             if hyp(fx - lx, fy - ly) > lr - margin:
                 ix, iy = unit(lx - px, ly - py)
@@ -1248,7 +1478,16 @@ class Brain:
                 mv, boost = jk, energy > 8
                 label += " juke"
 
-        if dodge is not None:
+        if giddy_active:
+            dx_, dy_, laser_dodge = self.giddy_dodge(obs, px, py, pz, vx, vy, me)
+            if dx_ != 0.0 or dy_ != 0.0:
+                mv = (mv[0] * 0.4 + dx_ * 0.9, mv[1] * 0.4 + dy_ * 0.9)
+                n = hyp(mv[0], mv[1])
+                if n > 1.0:
+                    mv = (mv[0] / n, mv[1] / n)
+                if laser_dodge and energy > 25.0:
+                    boost = True
+        elif dodge is not None:
             dx_, dy_, urgent = dodge
             if urgent:
                 mv = (dx_, dy_)
@@ -1308,7 +1547,7 @@ class Brain:
                     self.stuck_until = t + (0.9 if len(self.stuck_log) < 3 else 3.0)
                     self.path = None
                     self.hist.clear()
-        if charging:
+        if charging and not giddy_active:
             boost = False  # half speed anyway, keep energy
         return mv, boost, jump, label
 
@@ -1449,7 +1688,7 @@ class Brain:
                 best, bmv = s, (dx, dy)
         return bmv
 
-    def engageable(self, e, px, py, t):
+    def engageable(self, e, px, py, t, vx=0.0, vy=0.0):
         """giddygiddyboy's practice engage rule: fight mechs that are close, hitting us, closing in,
         weak, or aiming at us; leave the rest alone until they come."""
         d = e["dist"]
@@ -1458,7 +1697,7 @@ class Brain:
         ex, ey = e["pos"][0], e["pos"][1]
         ux, uy = unit(px - ex, py - ey)
         v = e.get("vel") or [0.0, 0.0, 0.0]
-        if v[0] * ux + v[1] * uy > 3.0 and d < 180.0:
+        if (v[0] - vx) * ux + (v[1] - vy) * uy > 3.0 and d < 180.0:
             return True
         ehp, emax = e.get("hp"), e.get("max_hp") or 1400.0
         if ehp is not None and float(ehp) < 0.4 * float(emax) and d < 160.0:
@@ -1467,6 +1706,587 @@ class Brain:
         if abs(wrap(math.atan2(py - ey, px - ex) - aim[0])) < 0.22 and d < 190.0:
             return True
         return False
+
+    def giddy_combat_state(self, t, me, tlist, threats, target, hpf):
+        """SquadParams retreat/lose/crowd rules (giddy2 brain.go:605-657)."""
+        hp = float(me.get("hp", 0.0))
+        max_hp = max(1.0, float(me.get("max_hp", 1400.0)))
+        engaged = [e for e in tlist if e.get("engage")]
+        danger = bool(engaged) or any(t - e.get("seen", -99.0) <= 2.5 and
+                                      t - self.attacked_by.get(e["id"], -99.0) < 4.0 for e in threats)
+        crowd = sum(1 for e in tlist if e.get("engage") or (e.get("los") and e.get("dist", 1e9) < 150.0))
+        if danger or t - self.giddy_last_hurt < 3.0:
+            self.giddy_last_threat_at = t
+        finishing = target is not None and target["dist"] < 120.0 and (
+            float(target.get("hp") or 1400.0) < 200.0 or
+            float(target.get("hp") or 1400.0) < hp * 0.5)
+        has_laser = any(w and w.get("kind") == "laser" for w in (me.get("weapons") or []))
+        outgunned = (target is not None and "laser" in (target.get("weapons") or []) and not has_laser
+                     and target["dist"] > 55.0 and hpf < 0.8)
+        swamped = crowd >= 3 or (crowd == 2 and hpf < 0.65) or outgunned
+        if not self.giddy_retreat and ((hpf < 0.38 and t - self.giddy_last_threat_at < 2.0) or swamped):
+            self.giddy_retreat = True
+            self.cover_t = -1.0
+        if self.giddy_retreat and not swamped and (hpf > 0.8 or
+                (t - self.giddy_last_threat_at > 7.0 and hpf > 0.55)):
+            self.giddy_retreat = False
+        near = sum(1 for e in tlist if e.get("dist", 1e9) < 160.0)
+        losing = (near >= 2 and hpf < 0.55) or (near >= 3 and hpf < 0.8)
+        if target is not None:
+            tf = float(target.get("hp") or 1400.0) / max(1.0, float(target.get("max_hp") or 1400.0))
+            if hpf < 0.35 and tf > hpf + 0.1:
+                losing = True
+            if tf < 0.25 and hpf > 0.2 and near <= 2:
+                losing = False
+        if losing:
+            self.giddy_lose_at = t
+        self.giddy_retreat = (t - self.giddy_lose_at < 1.5 and self.giddy_lose_at > 0.0)
+        return danger, crowd, finishing, swamped
+
+    def giddy_pref_range(self, kinds, energy, target):
+        if "lightning" in kinds and energy > 12.0:
+            r = 28.0
+        elif "laser" in kinds:
+            r = 120.0
+        else:
+            r = 85.0
+        if target.get("kind") == "npc":
+            return 58.0
+        enemy_weapons = target.get("weapons") or []
+        if "lightning" not in kinds:
+            if "lightning" in enemy_weapons:
+                r = max(r, 64.0)
+            if "mortar" in enemy_weapons:
+                r = max(r, 80.0)
+        return r
+
+    def giddy_zone_goal(self, zone, px, py):
+        nc = zone.get("next_center") or zone.get("center") or [px, py]
+        nr = float(zone.get("next_radius", zone.get("radius", 1e4)))
+        if nr <= 30.0:
+            return float(nc[0]), float(nc[1])
+        dx, dy = px - float(nc[0]), py - float(nc[1])
+        d = hyp(dx, dy)
+        if d < 1.0:
+            return px, py
+        r = max(0.0, nr - clamp(0.3 * nr, 3.0, 30.0) - 5.0)
+        if d <= r:
+            return px, py
+        return float(nc[0]) + dx / d * r, float(nc[1]) + dy / d * r
+
+    def giddy_zone_deadline(self, zone, x, y, pad):
+        nc = zone.get("next_center") or zone.get("center") or [x, y]
+        nr = float(zone.get("next_radius", zone.get("radius", 1e9)))
+        if hyp(x - nc[0], y - nc[1]) <= nr - pad:
+            return 1e30
+        ss = float(zone.get("shrink_start", 1e9))
+        se = float(zone.get("shrink_end", ss))
+        for k in range(25):
+            tt = ss + (se - ss) * k / 24.0
+            cx, cy, cr = self.giddy_zone_at(zone, tt)
+            if hyp(x - cx, y - cy) > cr - pad:
+                return tt
+        return se
+
+    def giddy_zone_penalty(self, zone, x, y, t):
+        cx, cy, cr = self.giddy_zone_at(zone, t)
+        p = 0.0
+        d = hyp(x - cx, y - cy) - cr
+        if d > -5.0:
+            p += 150.0 + 5.0 * (d + 5.0)
+        nc = zone.get("next_center") or [cx, cy]
+        nr = float(zone.get("next_radius", cr))
+        dn = hyp(x - nc[0], y - nc[1]) - nr
+        if dn > -5.0:
+            soon = clamp(1.0 - (float(zone.get("shrink_start", t)) - t) / 25.0, 0.1, 1.0)
+            p += soon * (25.0 + 0.8 * (dn + 5.0))
+        return p
+
+    def giddy_zone_at(self, zone, t):
+        """Reconstruct the source's hold-to-next interpolation from the live zone report."""
+        c = zone.get("center") or [0.0, 0.0]
+        r = float(zone.get("radius", 1e4))
+        nc = zone.get("next_center") or c
+        nr = float(zone.get("next_radius", r))
+        ss, se, now = float(zone.get("shrink_start", 1e9)), float(zone.get("shrink_end", 1e9)), self.t
+        if se <= ss:
+            return float(c[0]), float(c[1]), r
+        if now <= ss:
+            hx, hy, hr = float(c[0]), float(c[1]), r
+        else:
+            fnow = clamp((now - ss) / (se - ss), 0.0, 1.0)
+            if fnow >= 0.999:
+                hx, hy, hr = float(c[0]), float(c[1]), r
+            else:
+                den = max(1e-6, 1.0 - fnow)
+                hx = (float(c[0]) - float(nc[0]) * fnow) / den
+                hy = (float(c[1]) - float(nc[1]) * fnow) / den
+                hr = (r - nr * fnow) / den
+        if t <= ss:
+            return hx, hy, hr
+        if t >= se:
+            return float(nc[0]), float(nc[1]), nr
+        f = clamp((t - ss) / (se - ss), 0.0, 1.0)
+        return hx + (float(nc[0]) - hx) * f, hy + (float(nc[1]) - hy) * f, hr + (nr - hr) * f
+
+    def giddy_cover_goal(self, px, py, threats, zone):
+        """Cover search via geo.cover_near/free/LOS, approximating the source's bounded BFS."""
+        g = self.geo
+        if g is None:
+            return None
+        ts = sorted((e for e in threats if hyp(e["pos"][0] - px, e["pos"][1] - py) < 230.0),
+                    key=lambda e: hyp(e["pos"][0] - px, e["pos"][1] - py))[:4]
+        if not ts:
+            return None
+        height = float(getattr(self, "mech_height", 9.0))
+
+        def hidden(x, y):
+            z = g.ground(x, y)
+            for e in ts:
+                ex, ey, ez = e["pos"]
+                if (g.los(ex, ey, ez + 8.0, x, y, z + height, step=1.5) or
+                        g.los(ex, ey, ez + 8.0, x, y, z + height * 0.5, step=1.5)):
+                    return False
+            return True
+
+        if hidden(px, py) and self.giddy_zone_penalty(zone, px, py, self.t) == 0.0:
+            return px, py
+        cands = sorted(g.cover_near(px, py, 55.0), key=lambda p: (p[0] - px) ** 2 + (p[1] - py) ** 2)[:350]
+        best, best_s = None, 1e18
+        for x, y in cands:
+            if not g.free(x, y) or not hidden(x, y):
+                continue
+            path_d = hyp(x - px, y - py)
+            near = min(hyp(e["pos"][0] - x, e["pos"][1] - y) for e in ts)
+            score = path_d + self.giddy_zone_penalty(zone, x, y, self.t) - min(near, 80.0) * 0.25
+            if score < best_s:
+                best, best_s = (x, y), score
+        return best
+
+    def giddy_fight_move(self, t, px, py, kinds, target, energy, tlist, want_los, range_override=None):
+        """The stay-plus-16 six-metre search from brain.go:1367-1461."""
+        g = self.geo
+        if g is None:
+            return self.fight_move(t, px, py, kinds, target, 1.0, energy, tlist, 11.7)[0]
+        rp = float(range_override) if range_override is not None else self.giddy_pref_range(kinds, energy, target)
+        ex, ey, ez = target["pos"]
+        bx, by = ex - px, ey - py
+        bd = hyp(bx, by) + 1e-9
+        ux, uy = bx / bd, by / bd
+        if t >= self.strafe_until:
+            if self.rng.random() < 0.6:
+                self.strafe = -self.strafe
+            self.strafe_until = t + 0.3 + self.rng.random() * 0.7
+        sx, sy = -uy * self.strafe, ux * self.strafe
+        scale = 1.0 + self.size_per_cube * float(target.get("cubes") or 0)
+        tc = (ex, ey, ez + 4.5 * scale)
+        cube = None
+        for pos, seen in self.cubes_mem.values():
+            d = hyp(pos[0] - px, pos[1] - py)
+            if d < 40.0 and abs(pos[2] - self.pz_now) < 4.0 and (cube is None or d < hyp(cube[0] - px, cube[1] - py)):
+                cube = pos
+        zone = getattr(self, "_giddy_zone", {})
+        best, bmv, blocked_side = -1e18, (0.0, 0.0), False
+        for k in range(-1, 16):
+            if k < 0:
+                cx, cy, dx, dy, radius = px, py, 0.0, 0.0, 0.0
+            else:
+                a = k * PI / 8.0
+                dx, dy, radius = math.cos(a), math.sin(a), 6.0
+                cx, cy = px + dx * radius, py + dy * radius
+                if not g.free(cx, cy) or not g.seg_free(px, py, cx, cy, skip_start=0.5):
+                    if dx * sx + dy * sy > 0.9:
+                        blocked_side = True
+                    continue
+            cz = self.pz_now if k < 0 else g.ground(cx, cy)
+            d = hyp(ex - cx, ey - cy)
+            score = -1.1 * abs(d - rp) - 0.4 * radius
+            los = g.los(cx, cy, cz + self.muzzle_h, tc[0], tc[1], tc[2], step=1.5,
+                        skip_end=2.5 * scale)
+            if los:
+                score += 45.0 * want_los
+            body = (cx, cy, cz + float(getattr(self, "mech_height", 9.0)) * 0.6)
+            for other in tlist:
+                if other is target or hyp(other["pos"][0] - cx, other["pos"][1] - cy) > 170.0:
+                    continue
+                op = other["pos"]
+                oscale = 1.0 + self.size_per_cube * float(other.get("cubes") or 0)
+                oeye = float((self.cfg.get("mech") or {}).get("eye_height", 8.0)) * oscale
+                if g.los(op[0], op[1], op[2] + oeye, body[0], body[1], body[2], step=1.5):
+                    score -= 30.0
+            score -= self.giddy_zone_penalty(zone, cx, cy, t)
+            if cube is not None:
+                score += 1.5 * (hyp(cube[0] - px, cube[1] - py) - hyp(cube[0] - cx, cube[1] - cy))
+            # geo exposes binary free/blocked navigation, not the source's clearance map;
+            # estimate clearance in 1 m rings for the same <4 m penalty.
+            clearance = 4.0
+            for rr in (1.0, 2.0, 3.0, 4.0):
+                if any(not g.free(cx + math.cos(q * PI / 4.0) * rr,
+                                  cy + math.sin(q * PI / 4.0) * rr) for q in range(8)):
+                    clearance = rr - 1.0
+                    break
+            if clearance < 4.0:
+                score -= (4.0 - clearance) * 2.5
+            if want_los > 0:
+                score += 9.0 * (dx * sx + dy * sy)
+            if k < 0:
+                score -= 8.0
+                if want_los < 0 and not los:
+                    score += 14.0
+            if score > best:
+                best, bmv = score, (dx, dy)
+        if blocked_side:
+            self.strafe = -self.strafe
+            self.strafe_until = t + 0.5
+        return bmv
+
+    def giddy_want_pickup(self, kinds, kind):
+        # brain.go:1166-1186; DefaultParams keeps NoMortar=true and LaserFirst=true.
+        slots = list(kinds) + [None, None]
+        if kind == "gun":
+            return slots[0] is None
+        if kind in kinds or (kind == "mortar"):
+            return False
+        rank = {"lightning": 3, "laser": 2, "mortar": 1}
+        if kind == "laser":
+            new_rank = 4
+        else:
+            new_rank = rank.get(kind, 0)
+        old = slots[1]
+        old_rank = 4 if old == "laser" else rank.get(old, 0)
+        return new_rank > old_rank
+
+    def giddy_idle_aim(self, t, px, py, mx, my, my_aim, stats):
+        """The no-target facing order from brain.go:1056-1078."""
+        watch = None
+        for e in self.enemies.values():
+            age = t - e.get("seen", -99.0)
+            if age > 2.5:
+                continue
+            if not ((age <= 0.01 and e.get("engage")) or t - self.attacked_by.get(e["id"], -99.0) < 6.0):
+                continue
+            d = hyp(e["pos"][0] - px, e["pos"][1] - py)
+            if watch is None or d < watch[0]:
+                watch = (d, e)
+        if watch is not None:
+            p = watch[1]["pos"]
+            yaw = math.atan2(p[1] - py, p[0] - px)
+        elif t - self.giddy_npc_hurt < 2.5:
+            yaw = self.giddy_npc_bearing
+        elif t - self.giddy_last_hurt < 2.5:
+            yaw = self.giddy_hurt_bearing
+        elif mx != 0.0 or my != 0.0:
+            yaw = math.atan2(my, mx) + 1.15 * math.sin(t * 1.3)
+        else:
+            yaw = my_aim[0] + 0.35
+        return yaw, clamp(0.0, float(stats.get("min_pitch", -0.7)), float(stats.get("max_pitch", 1.3)))
+
+    def giddy_aim_fire(self, obs, shoot, slots, tlist):
+        """Squad-sourced gun lead and weapon trigger logic (brain.go:880-1054, 1189-1205)."""
+        fire = [False, False]
+        laser_slot = next((i for i, w in enumerate(slots) if w and w.get("kind") == "laser"), None)
+        gun_slot = next((i for i, w in enumerate(slots) if w and w.get("kind") == "gun"), None)
+        lit_slot = next((i for i, w in enumerate(slots) if w and w.get("kind") == "lightning"), None)
+        laser = slots[laser_slot] if laser_slot is not None else None
+        gun = slots[gun_slot] if gun_slot is not None else None
+        light = slots[lit_slot] if lit_slot is not None else None
+        me = obs["self"]
+        px, py, pz = me["pos"]
+        vx, vy, vz = me.get("vel") or [0.0, 0.0, 0.0]
+        st = me.get("stats") or {}
+        turn = float(st.get("turn_rate", 4.0))
+        pitch_rate = float(st.get("pitch_rate", 3.0))
+        mz = pz + float(st.get("muzzle_height", 7.0))
+        latency = 0.075
+        muzzle = (px + vx * latency, py + vy * latency, mz)
+        aim_now = me.get("aim") or [0.0, 0.0]
+        laser_stats = (laser or {}).get("stats") or self.W.get("laser") or {}
+        full_charge = float(laser_stats.get("charge", 0.75))
+        hold_s = float(laser_stats.get("hold_s", 2.0))
+        charge = float((laser or {}).get("charge", 0.0))
+        yaw = pitch = None
+        if shoot is None:
+            if laser is not None and charge > 0.0 and laser_slot is not None:
+                fire[laser_slot] = charge < full_charge + hold_s - 0.35
+            return yaw, pitch, fire
+
+        kind = shoot.get("kind", "mech")
+        pos = shoot.get("pos") or [0.0, 0.0, 0.0]
+        tv = shoot.get("vel") or [0.0, 0.0, 0.0]
+        if kind == "mech":
+            scale = 1.0 + self.size_per_cube * float(shoot.get("cubes") or 0)
+            radius = float((self.cfg.get("mech") or {}).get("radius", 2.5)) * scale
+            height = float((self.cfg.get("mech") or {}).get("height", 9.0)) * scale
+            com = (pos[0], pos[1], pos[2] + height * 0.5)
+            if self.geo is not None and not self.geo.los(*muzzle, *com, step=1.0, skip_end=2.5 * scale):
+                com = (pos[0], pos[1], pos[2] + height * 0.85)
+            los_ok = bool(shoot.get("los", True))
+        elif kind == "npc":
+            nc = self.cfg.get("npc") or {}
+            radius = float(nc.get("radius", 2.0))
+            height = float(nc.get("height", 4.0))
+            com = (pos[0], pos[1], pos[2] + height * 0.5)
+            los_ok = self.geo is None or self.geo.los(*muzzle, *com, step=1.0, skip_end=radius + 0.5)
+        else:
+            cc = self.cfg.get("crates") or {}
+            radius = float(cc.get("radius", 2.0))
+            height = float(cc.get("height", 4.0))
+            com = (pos[0], pos[1], pos[2] + height * 0.5)
+            los_ok = self.geo is None or self.geo.los(*muzzle, *com, step=1.0, skip_end=radius + 0.5)
+        d3 = math.sqrt((com[0] - muzzle[0]) ** 2 + (com[1] - muzzle[1]) ** 2 + (com[2] - mz) ** 2)
+        gst = (gun or {}).get("stats") or self.W.get("gun") or {}
+        speed = float(gst.get("speed", 252.0))
+        gun_range = float(gst.get("range", 230.0))
+        dist = hyp(pos[0] - px, pos[1] - py)
+        direct = (com[0] + tv[0] * (latency + 0.05),
+                  com[1] + tv[1] * (latency + 0.05), com[2])
+        hd = hyp(direct[0] - muzzle[0], direct[1] - muzzle[1])
+        hy = math.atan2(direct[1] - muzzle[1], direct[0] - muzzle[0])
+        hp = math.atan2(direct[2] - muzzle[2], max(hd, 0.1))
+        gy, gp = hy, hp
+        if gun is not None:
+            flight_t = 0.0
+            for _ in range(4):
+                tt = latency + flight_t
+                lead_pos = (com[0] + tv[0] * tt,
+                            com[1] + tv[1] * tt,
+                            com[2] + (tv[2] * tt * 0.5 if abs(tv[2]) >= 0.5 else 0.0))
+                dd = math.sqrt((lead_pos[0] - muzzle[0]) ** 2 + (lead_pos[1] - muzzle[1]) ** 2 +
+                               (lead_pos[2] - muzzle[2]) ** 2)
+                flight_t = max(0.0, dd - 3.0) / max(1.0, speed)
+            ghd = hyp(lead_pos[0] - muzzle[0], lead_pos[1] - muzzle[1])
+            gy = math.atan2(lead_pos[1] - muzzle[1], lead_pos[0] - muzzle[0])
+            gp = math.atan2(lead_pos[2] - muzzle[2], max(ghd, 0.1))
+            yaw, pitch = gy, gp
+        else:
+            yaw, pitch = hy, hp
+        tol_y = math.atan2(radius * 0.75, max(dist, 1.0))
+        tol_p = math.atan2(height * 0.4, max(dist, 1.0))
+
+        def slew(want_y, want_p):
+            ye = max(0.0, abs(wrap(want_y - aim_now[0])) - turn * 0.05)
+            pe = max(0.0, abs(want_p - aim_now[1]) - pitch_rate * 0.05)
+            return ye < tol_y and pe < tol_p
+
+        yaw_err = abs(wrap(hy - aim_now[0]))
+        pitch_err = abs(hp - aim_now[1])
+        aligned_now = yaw_err < tol_y * 0.9 and pitch_err < tol_p
+        if los_ok:
+            if gun is not None and gun_slot is not None and dist <= gun_range * 0.96 and \
+                    (gun.get("ammo") is None or float(gun.get("ammo", 1)) > 0) and \
+                    float(gun.get("reload", 0.0)) <= 0.0 and slew(gy, gp):
+                fire[gun_slot] = True
+            if light is not None and lit_slot is not None:
+                lw = (light.get("stats") or self.W.get("lightning") or {})
+                cone = math.radians(float(lw.get("cone_deg", 20.0)))
+                lrange = float(lw.get("range", 45.0))
+                lcost = float(lw.get("energy", 3.0))
+                if dist < lrange - 1.5 and abs(wrap(hy - aim_now[0])) < cone * 0.5 - 0.05 and \
+                        float(me.get("energy", 0.0)) >= lcost:
+                    fire[lit_slot] = True
+        if laser is not None and laser_slot is not None and kind == "mech" and \
+                    dist <= float(laser_stats.get("range", 280.0)) * 0.97:
+            in_range = True
+            min_charge = float(laser_stats.get("min_charge", 0.15))
+            min_frac = float(laser_stats.get("min_frac", 0.35))
+            if charge > 0.0:
+                lethal = charge >= min_charge and charge < full_charge - 0.051
+                dmg = float(laser_stats.get("damage", 315.0)) * (
+                    min_frac + (1.0 - min_frac) * min(1.0, charge / max(0.01, full_charge)))
+                dmg *= 1.0 + self.dmg_per_cube * min(float(me.get("cubes", 0)), self.stat_cap)
+                if "mortar" in (shoot.get("weapons") or []):
+                    dmg *= 1.0 + float(laser_stats.get("cookoff", 0.6))
+                kill_now = (lethal and shoot.get("hp") is not None and dmg * 0.8 >= float(shoot["hp"])
+                            and aligned_now)
+                full = charge >= full_charge - 0.051
+                overtime = charge >= full_charge + hold_s - 0.35
+                if los_ok and in_range and ((full and aligned_now) or kill_now):
+                    fire[laser_slot] = False
+                    if charge > full_charge * 0.45:
+                        yaw, pitch = hy, hp
+                elif overtime:
+                    fire[laser_slot] = False
+                else:
+                    fire[laser_slot] = True
+                    if charge > full_charge * 0.45:
+                        yaw, pitch = hy, hp
+            else:
+                ready = float(laser.get("cooldown", 0.0)) <= 0.05 and self.t >= self.shorted_until
+                if ready and los_ok and d3 < float(laser_stats.get("range", 280.0)) * 0.97 and \
+                        abs(wrap(hy - aim_now[0])) < 0.6:
+                    fire[laser_slot] = True
+        if pitch is not None:
+            pitch = clamp(pitch, float(st.get("min_pitch", -0.7)), float(st.get("max_pitch", 1.3)))
+        return yaw, pitch, fire
+
+    def giddy_choose_take(self, px, py, pz, kinds, slots):
+        for pid, (kind, pos, seen) in self.pickups.items():
+            if self.take_block.get(pid, -1) > self.t or self.t - seen > 0.01:
+                continue
+            if hyp(pos[0] - px, pos[1] - py) > self.loot_r - 0.3 or abs(pos[2] - pz) > 3.6:
+                continue
+            if not self.giddy_want_pickup(kinds, kind):
+                continue
+            drop = None
+            if len(slots) > 1 and slots[1] is not None and slots[0] is not None:
+                if slots[1].get("kind") == "laser" and float(slots[1].get("charge", 0.0)) > 0.0:
+                    return None
+                drop = 1
+            return pid, drop
+        return None
+
+    def giddy_choose_loot(self, obs, hpf, danger, kinds):
+        """Regular (non-Econ) chooseLoot with squadParams values (brain.go:1579-1762)."""
+        me = obs["self"]
+        px, py = me["pos"][:2]
+        zone = obs.get("zone") or {}
+        now = self.t
+        cx, cy, cr = self.zone_at(zone, now)
+        walk = float((me.get("stats") or {}).get("walk_speed", 11.7))
+        best, best_u = None, 0.0
+
+        def consider(kind, ident, pos, value):
+            nonlocal best, best_u
+            if self.giddy_bad.get(ident, -1.0) > now:
+                return
+            d = hyp(pos[0] - px, pos[1] - py)
+            if d > 260.0 or hyp(pos[0] - cx, pos[1] - cy) > cr - 6.0:
+                return
+            dl = self.giddy_zone_deadline(zone, pos[0], pos[1], 6.0)
+            if now + d * 1.4 / max(1.0, walk) + 5.0 > dl:
+                return
+            if pos[2] - self.ground(pos[0], pos[1]) > 3.2:
+                return
+            if self.geo is not None:
+                nf = self.geo.nearest_free(pos[0], pos[1])
+                if nf is None or self.geo.comp[nf] != self.giddy_main_comp:
+                    return
+            u = value / (d + 18.0)
+            if ident == self.giddy_loot_id:
+                u *= 1.35
+            if u > best_u:
+                best_u = u
+                best = {"kind": kind, "id": ident, "pos": list(pos), "value": value}
+
+        for pid, (kind, pos, seen) in self.pickups.items():
+            rad = 240.0 if kind == "laser" else 150.0
+            if self.giddy_want_pickup(kinds, kind) and hyp(pos[0] - px, pos[1] - py) < rad:
+                v = 60.0
+                if len(kinds) > 1 and kinds[1] is None:
+                    v = 130.0
+                if kind == "laser":
+                    v = max(v, 150.0)
+                consider("pickup", pid, pos, v)
+        cube_v = 25.0 if float(me.get("cubes", 0)) >= self.stat_cap else 75.0
+        for cid, (pos, seen) in self.cubes_mem.items():
+            if hyp(pos[0] - px, pos[1] - py) < 105.0:
+                consider("cube", cid, pos, cube_v)
+        if hpf > 0.5 and not danger and now < 1e9:
+            for cid, (pos, chp, seen) in self.crates.items():
+                if hyp(pos[0] - px, pos[1] - py) < 150.0:
+                    consider("crate", cid, pos, cube_v * 0.6)
+            if float(me.get("cubes", 0)) < self.stat_cap:
+                for nid, n in self.npcs.items():
+                    if now - n.get("seen", -99.0) < 12.0 and hyp(n["pos"][0] - px, n["pos"][1] - py) < 150.0:
+                        consider("npc", nid, n["pos"], 85.0)
+        if best is None:
+            self.giddy_loot_id = None
+            return None
+        d = hyp(best["pos"][0] - px, best["pos"][1] - py)
+        if best["id"] != self.giddy_loot_id:
+            self.giddy_loot_id, self.giddy_loot_since = best["id"], now
+        elif now - self.giddy_loot_since > 30.0 or (
+                best["kind"] == "crate" and now - self.giddy_loot_since > 24.0 and d < 50.0):
+            self.giddy_bad[best["id"]] = now + 60.0
+            self.giddy_loot_id = None
+            return None
+        self.giddy_bad = {k: v for k, v in self.giddy_bad.items() if v > now}
+        return best
+
+    def giddy_dodge_shell(self, obs, px, py, pz, me):
+        """Mortar-impact dodge from brain.go:1240-1283, on the geo solid grid."""
+        g = self.geo
+        if g is None:
+            return None
+        mw = self.cfg.get("weapons", {}).get("mortar", {})
+        splash = float(mw.get("splash_radius", 12.0))
+        radius = float((me.get("stats") or {}).get("radius", 2.5))
+        limit = splash + radius + 2.0
+        gravity = float(mw.get("gravity", self.mortar_g))
+        for p in obs.get("projectiles") or []:
+            if p.get("kind") != "mortar":
+                continue
+            pos, vel = p.get("pos"), p.get("vel")
+            if not pos or not vel:
+                continue
+            x, y, z = map(float, pos)
+            vz = float(vel[2])
+            for step in range(1, 81):
+                tt = step * 0.05
+                x += float(vel[0]) * 0.05
+                y += float(vel[1]) * 0.05
+                z += vz * 0.05
+                vz -= gravity * 0.05
+                if g.solid_at(x, y, z):
+                    d = hyp(x - px, y - py)
+                    if d >= limit or tt >= 2.5:
+                        break
+                    dx, dy = px - x, py - y
+                    if d < 0.5:
+                        dx, dy = -float(vel[1]), float(vel[0])
+                        d = hyp(dx, dy)
+                    dx, dy = dx / max(d, 1e-9), dy / max(d, 1e-9)
+                    for rot in (0.0, 0.7, -0.7, 1.4, -1.4):
+                        c, s = math.cos(rot), math.sin(rot)
+                        ex, ey = dx * c - dy * s, dx * s + dy * c
+                        if g.seg_free(px, py, px + ex * 6.0, py + ey * 6.0):
+                            return ex, ey
+                    break
+        return None
+
+    def giddy_dodge(self, obs, px, py, pz, vx, vy, me):
+        """Bullet and charging-laser dodge from brain.go:1836-1883."""
+        height = float((me.get("stats") or {}).get("height", 9.0))
+        radius = float((me.get("stats") or {}).get("radius", 2.5)) + 1.1
+        cx, cy, cz = px, py, pz + height * 0.56
+        dx = dy = 0.0
+        laser = False
+        for p in obs.get("projectiles") or []:
+            if p.get("kind") == "mortar":
+                continue
+            pos, vel = p.get("pos"), p.get("vel")
+            if not pos or not vel:
+                continue
+            v2 = sum(float(v) ** 2 for v in vel)
+            if v2 < 1.0:
+                continue
+            tc = sum((c - q) * float(v) for c, q, v in zip((cx, cy, cz), pos, vel)) / v2
+            if tc <= 0.0 or tc > 0.7:
+                continue
+            mx = float(pos[0]) + float(vel[0]) * tc - cx
+            my = float(pos[1]) + float(vel[1]) * tc - cy
+            if hyp(mx, my) >= radius:
+                continue
+            vh = hyp(float(vel[0]), float(vel[1]))
+            if vh < 1.0:
+                continue
+            sx, sy = -float(vel[1]) / vh, float(vel[0]) / vh
+            if sx * mx + sy * my > 0:
+                sx, sy = -sx, -sy
+            dx, dy = dx + sx, dy + sy
+        for m in obs.get("mechs") or []:
+            if m.get("kind", "mech") != "mech" or not m.get("charging"):
+                continue
+            pos = m.get("pos") or [0.0, 0.0, 0.0]
+            aim = m.get("aim") or [0.0, 0.0]
+            to_me = math.atan2(cy - pos[1], cx - pos[0])
+            if abs(wrap(float(aim[0]) - to_me)) > 0.15:
+                continue
+            dx += math.cos(to_me + PI / 2.0 * self.strafe) * 1.5
+            dy += math.sin(to_me + PI / 2.0 * self.strafe) * 1.5
+            laser = True
+        d = hyp(dx, dy)
+        return (dx / d, dy / d, laser) if d > 0.01 else (0.0, 0.0, False)
 
     def duck_find(self, t, px, py, e):
         """A free spot 6 or 12 m away that the target's eye cannot see (re-evaluated every 0.5 s)."""
@@ -1592,8 +2412,7 @@ class Brain:
         boost = energy > 55 and d > 60 and not has_lit
         if radial < 0 and d < rmin * 0.6 and energy > 30:
             boost = True
-        if (P["fightboost"] > 0 and not self.ffa and energy > P["fightboost"] and not self.laser_charging_now
-                and (not has_lit or energy > 60)):  # practice only: it cost ~2 pts/match in live FFA
+        if P["fightboost"] > 0 and energy > P["fightboost"] and not self.laser_charging_now and (not has_lit or energy > 60):
             boost = True
         return mv, boost, "fight%d" % int(d)
 
