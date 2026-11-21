@@ -64,3 +64,5 @@ v10 (`575bceb`, slower strafing) built and checked; submit at the next paced slo
 - Movement: samples 16 spots 6 m away; wants line of sight only when a weapon is ready, so it ducks out of sight while the gun reloads.
 - A fitted logistic "odds" model (HP ratio, cubes, weapon count, busy-ness) decides fights in FFA.
 Built as knobs: `selfcomp` (muzzle compensation). Next: reload-duck.
+
+| Sat 3:22 AM (Mac) | `d8eeec4` (exp/v11) | v6 + 145 m with a laser | scoring… |
