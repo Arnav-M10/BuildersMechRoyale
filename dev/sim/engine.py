@@ -1527,6 +1527,87 @@ class Match:
             if w and w.kind=="gun" and w.reload<=0 and w.ammo<=0:
                 w.ammo=float(a.weapon_stats["gun"].get("mag",12))
 
+    def _cylinder_overlap(self, x, y, feet_z, radius, height):
+        """Count map cells intersecting the actor's horizontal disk and vertical span.
+
+        Geo's interval raster stores one-metre square cells. Test the circle against each
+        intersecting cell square, not a handful of points inside a reduced radius. This
+        matters for cube-grown mechs and for low bridges that intersect only the upper body.
+        """
+        g = self.geo
+        bx0, bx1, by0, by1 = g.bounds
+        overlap = int(x - radius < bx0 or x + radius > bx1 or
+                      y - radius < by0 or y + radius > by1)
+        i0 = max(0, int(math.floor(x - radius - g.X0 - 0.5)))
+        i1 = min(g.NX - 1, int(math.ceil(x + radius - g.X0 + 0.5)))
+        j0 = max(0, int(math.floor(y - radius - g.Y0 - 0.5)))
+        j1 = min(g.NY - 1, int(math.ceil(y + radius - g.Y0 + 0.5)))
+        low, high = feet_z + 0.05, feet_z + height - 0.05
+        lo, hi = g.lo, g.hi
+        multi = g.multi
+        for j in range(j0, j1 + 1):
+            cy = g.Y0 + j
+            dy = max(0.0, abs(cy - y) - 0.5)
+            for i in range(i0, i1 + 1):
+                cx = g.X0 + i
+                dx = max(0.0, abs(cx - x) - 0.5)
+                if dx * dx + dy * dy > radius * radius:
+                    continue
+                k = j * g.NX + i
+                if lo[k] < hi[k] and lo[k] < high and hi[k] > low:
+                    overlap += 1
+                    continue
+                for a, b in multi.get(k, ()):
+                    if a < high and b > low:
+                        overlap += 1
+                        break
+        # Out-of-map cells also block the cylinder. Count a single penalty above; the
+        # simulator's movement bounds keep this from overwhelming local wall scores.
+        return overlap
+
+    def _push_out_of_solids(self, x, y, feet_z, radius, height, preferred=(0.0, 0.0),
+                            support_z=None, max_push=0.6):
+        """Move an already-overlapping mech at most 0.6 m toward the clearest side."""
+        if self._cylinder_overlap(x, y, feet_z, radius, height) == 0:
+            return x, y
+        pd = math.hypot(preferred[0], preferred[1])
+        if pd > 1e-9:
+            pref = (preferred[0] / pd, preferred[1] / pd)
+        else:
+            pref = (0.0, 0.0)
+        best_dir = (0.0, 0.0)
+        best_key = None
+        for k in range(32):
+            a = TAU * k / 32.0
+            ux, uy = math.cos(a), math.sin(a)
+            # Look ahead while moving only 0.6 m this tick. The lookahead resolves ties
+            # on grid-aligned walls without teleporting through them.
+            score = 0
+            support_bad = 0
+            for d in (max_push, max_push * 2, max_push * 3):
+                qx, qy = x + ux * d, y + uy * d
+                score += self._cylinder_overlap(qx, qy, feet_z, radius, height)
+                if support_z is not None:
+                    support_bad += self._cylinder_overlap(qx, qy, support_z, radius, height)
+            key = (support_bad, score, -ux * pref[0] - uy * pref[1])
+            if best_key is None or key < best_key:
+                best_key, best_dir = key, (ux, uy)
+        return x + best_dir[0] * max_push, y + best_dir[1] * max_push
+
+    def _open_normal(self, x, y, feet_z, radius, height):
+        """Approximate the free-side normal at a wall contact for tangent sliding."""
+        sx = sy = 0.0
+        probe = 0.25
+        for k in range(24):
+            a = TAU * k / 24.0
+            ux, uy = math.cos(a), math.sin(a)
+            if self._cylinder_overlap(x + ux * probe, y + uy * probe,
+                                      feet_z, radius, height) == 0:
+                sx += ux
+                sy += uy
+        d = math.hypot(sx, sy)
+        return (sx / d, sy / d) if d > 1e-6 else (0.0, 0.0)
+
     def _physics_actor(self,a,dt):
         if not a.alive:return
         stats=a.stats if a.kind=="mech" else self.cfg["mech"]
@@ -1568,31 +1649,88 @@ class Match:
         if d>accel*dt and d>1e-8:dx*=accel*dt/d;dy*=accel*dt/d
         a.vel[0]+=dx;a.vel[1]+=dy
         oldx,oldy,oldz=a.pos
-        nx=oldx+a.vel[0]*dt;ny=oldy+a.vel[1]*dt
-        if a.kind=="mech":
-            rad,_=self._actor_size(a)
-        else:rad=float(self.cfg["npc"].get("radius",1.8))
+        rad, actor_height = self._actor_size(a)
         step=float(stats.get("step_up",1.2))
-        def surface_ok(x,y):
-            z=self._walk_surface(x,y,oldz)
-            if z is None:return None
-            move_d=math.hypot(x-oldx,y-oldy)
-            if a.grounded:
-                if z-oldz>step+0.12 and oldz<=z-step: return None
-                if move_d>0.1 and z>oldz and (z-oldz)/move_d>math.tan(math.radians(float(stats.get("max_slope_deg",50)))):
+        ground_move = bool(a.grounded)
+
+        def surface_ok(x, y):
+            z = self._walk_surface(x, y, oldz) if ground_move else oldz
+            if z is None:
+                return None
+            move_d = math.hypot(x - oldx, y - oldy)
+            if ground_move:
+                if z - oldz > step + 0.12 and oldz <= z - step:
                     return None
-            for k in range(8):
-                ang=k*TAU/8
-                if self.geo.solid_at(x+math.cos(ang)*rad*.78,y+math.sin(ang)*rad*.78,oldz+2.0):return None
+                if (move_d > 0.1 and z > oldz and
+                        (z - oldz) / move_d > math.tan(math.radians(float(stats.get("max_slope_deg", 50))))):
+                    return None
+            if self._cylinder_overlap(x, y, z, rad, actor_height):
+                return None
             return z
-        nz=surface_ok(nx,ny)
-        if nz is None:
-            # axis sliding, with a small clearance check around the mech cylinder
-            sx=surface_ok(nx,oldy)
-            sy=surface_ok(oldx,ny)
-            if sx is not None:nx,ny,nz=nx,oldy,sx
-            elif sy is not None:nx,ny,nz=oldx,ny,sy
-            else:nx,ny,nz=oldx,oldy,self._walk_surface(oldx,oldy,oldz)
+
+        # Cubes can grow a mech while it is already beside a wall or under an eave.
+        # Nudge an overlapping cylinder out by at most 0.6 m per tick before trying its
+        # requested displacement; do not let jump/jet acceleration drive it deeper in.
+        start_feet = self._walk_surface(oldx, oldy, oldz) if ground_move else oldz
+        start_overlap = self._cylinder_overlap(oldx, oldy, start_feet, rad, actor_height)
+        nx, ny = oldx, oldy
+        embedded = start_overlap > 0
+        if embedded:
+            nx, ny = self._push_out_of_solids(oldx, oldy, start_feet, rad, actor_height,
+                                               preferred=(a.vel[0], a.vel[1]),
+                                               support_z=oldz if start_feet != oldz else None)
+            if ground_move:
+                support = self._walk_surface(nx, ny, oldz)
+                if support is not None:
+                    oldz = support
+                    a.pos[2] = support
+            embedded = self._cylinder_overlap(nx, ny, oldz, rad, actor_height) > 0
+
+        # Sweep the full cylinder in short increments. At first contact, binary-search
+        # the last safe point, remove only the component into the wall, and retry the
+        # tangent component. This works for diagonal walls and large radii where either
+        # world-axis candidate alone can still point into the obstruction.
+        remaining = [0.0, 0.0] if start_overlap else [a.vel[0] * dt, a.vel[1] * dt]
+        for _ in range(4):
+            distance = math.hypot(remaining[0], remaining[1])
+            if distance < 0.01 or embedded:
+                break
+            count = max(1, int(math.ceil(distance / 0.22)))
+            hit_wall = False
+            for _ in range(count):
+                sx, sy = remaining[0] / count, remaining[1] / count
+                tx, ty = nx + sx, ny + sy
+                if surface_ok(tx, ty) is not None:
+                    nx, ny = tx, ty
+                    remaining[0] -= sx
+                    remaining[1] -= sy
+                    continue
+                lo, hi = 0.0, 1.0
+                for _ in range(10):
+                    mid = (lo + hi) * 0.5
+                    if surface_ok(nx + sx * mid, ny + sy * mid) is None:
+                        hi = mid
+                    else:
+                        lo = mid
+                nx += sx * lo
+                ny += sy * lo
+                remaining[0] -= sx * lo
+                remaining[1] -= sy * lo
+                contact_z = self._walk_surface(nx, ny, oldz) if ground_move else oldz
+                normal = self._open_normal(nx, ny, contact_z if contact_z is not None else oldz,
+                                           rad, actor_height)
+                into = remaining[0] * normal[0] + remaining[1] * normal[1]
+                if into < 0.0:
+                    remaining[0] -= into * normal[0]
+                    remaining[1] -= into * normal[1]
+                else:
+                    remaining = [0.0, 0.0]
+                hit_wall = True
+                break
+            if not hit_wall:
+                break
+
+        nz=self._walk_surface(nx,ny,oldz)
         a.pos[0]=nx;a.pos[1]=ny
         if a.grounded and nz is not None and nz>=oldz-step-0.2:
             a.pos[2]=nz;a.vel[2]=max(0.0,a.vel[2]);a.grounded=True
@@ -1602,9 +1740,37 @@ class Match:
                 a.vel[2]=min(float(stats.get("max_rise_speed",10)),
                              a.vel[2]+float(stats.get("jet_accel",34))*dt)
             znext=oldz+a.vel[2]*dt
-            _, actor_height = self._actor_size(a)
-            if znext>oldz and self.geo.solid_at(nx,ny,znext+actor_height):
-                znext=oldz;a.vel[2]=min(0.0,a.vel[2])
+            if embedded:
+                znext=oldz;a.vel[2]=0.0
+            elif znext>oldz:
+                # A ceiling can be above the feet but below the head. Sweep the whole
+                # vertical span; if a jet meets an eave, slide outward by <=0.6 m/tick.
+                levels=max(1,int(math.ceil((znext-oldz)/0.2)))
+                blocked_at=None
+                for k in range(1,levels+1):
+                    qz=oldz+(znext-oldz)*k/levels
+                    if self._cylinder_overlap(nx,ny,qz,rad,actor_height):
+                        blocked_at=qz
+                        break
+                if blocked_at is not None:
+                    ex,ey=nx,ny
+                    if jetting:
+                        ex,ey=self._push_out_of_solids(nx,ny,blocked_at,rad,actor_height,
+                                                        preferred=(a.vel[0],a.vel[1]),
+                                                        support_z=oldz)
+                    support_clear=self._cylinder_overlap(ex,ey,oldz,rad,actor_height)==0
+                    vertical_clear=support_clear
+                    if vertical_clear:
+                        for k in range(1,levels+1):
+                            qz=oldz+(znext-oldz)*k/levels
+                            if self._cylinder_overlap(ex,ey,qz,rad,actor_height):
+                                vertical_clear=False
+                                break
+                    if support_clear and (ex != nx or ey != ny):
+                        nx,ny=ex,ey
+                        a.pos[0],a.pos[1]=nx,ny
+                    if not vertical_clear:
+                        znext=oldz;a.vel[2]=0.0
             if nz is not None and a.vel[2]<=0 and znext<=nz:
                 a.pos[2]=nz;a.vel[2]=0.0;a.grounded=True
             else:

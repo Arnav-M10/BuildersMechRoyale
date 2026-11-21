@@ -100,6 +100,8 @@ def lead_vel(v, pv, T):
     """Effective horizontal velocity for leading a shot T seconds ahead. Fitted on 62k samples of
     live house-bot motion: jukes keep turning, so extrapolate the last 0.1 s acceleration
     (within 2.5 m of truth: 94% vs 89% for constant velocity at T=0.3 s; 85% vs 81% at 0.4 s)."""
+    if pv is not None and v[0] * pv[0] + v[1] * pv[1] < 0.0:
+        pv = None  # just reversed: extrapolating the old acceleration overshoots
     if pv is None or T > 0.65:
         k = 1.0 if pv is None else 0.9
         return v[0] * k, v[1] * k
@@ -255,7 +257,7 @@ class Brain:
                 "cubes": m.get("cubes") or 0, "seen": t, "kind": m.get("kind", "mech"),
             }
             old = self.enemies.get(mid) if rec["kind"] != "npc" else self.npcs.get(mid)
-            if old is not None and 0.0 < t - old["seen"] <= 0.16:
+            if old is not None and 0.07 <= t - old["seen"] <= 0.13:
                 rec["pvel"] = old["vel"]
             if rec["kind"] == "npc":
                 self.npcs[mid] = rec
@@ -1243,7 +1245,10 @@ class Brain:
                 if comp is None or comp < 0:
                     continue
                 q = g.nearest_in_comp(x, y, comp, maxr=40)
-                if q is not None and (cr <= 1.0 or hyp(q[0] - cx, q[1] - cy) < max(cr - 3.0, cr * 0.8)):
+                if q is None:
+                    continue
+                dq = hyp(q[0] - cx, q[1] - cy)
+                if (cr <= 1.0 and dq <= 8.0) or (cr > 1.0 and dq < max(cr - 3.0, cr * 0.8)):
                     return q
         except Exception:
             log(traceback.format_exc())
