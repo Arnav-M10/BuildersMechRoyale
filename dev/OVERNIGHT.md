@@ -37,7 +37,7 @@ Typical loss: a 130–160 m gun duel against the first hunter, then a flight acr
 | Sat 3:22 AM | `173b7c0` (exp/v8) | v6 + TTUN gun tolerance on the gun's own lead (both top public bots fire much more freely) | 4.79 (worse; gtol stays off) |
 | Sat 2:55 AM (Mac) | `0fdb4d9` (exp/v9) | v6 + Inventors' upgrade order | 4.90 (no gain; default order kept) |
 | Sat 3:01 AM (Mac) | `575bceb` (exp/v10) | v6 + slower strafe flips (1.0–2.6 s) | 4.77 (worse) |
-| Sat 3:06 AM (Mac) | `2dfc546` (v5 again) | NOISE CHECK: same commit that scored 5.13 | scoring… |
+| Sat 3:06 AM (Mac) | `2dfc546` (v5 again) | NOISE CHECK: same commit that scored 5.13 | **5.13 again**: scoring is deterministic. Small changes still reshuffle matches chaotically, so treat |Δ| < 0.2 as noise for generalization |
 
 ## Sim sweeps since v5
 | Seeds | Variant (vs v5) | Result |
