@@ -49,6 +49,7 @@ P = {
     "tsel": True,         # target = lowest hp * (1 + dist/120) among visible
     "fightloot": True,    # mid-fight: scoop cubes <30 m, fetch a better weapon <200 m, take drops
     "econ": False,        # TTUN-style economy: hunt drones/crates/drops for cubes; armor/plating/nanites first
+    "killloot": False,    # walk back to where our kills died (their cubes + 2 drop there) when no threat is close
 }
 # offline tuning only: the simulator may override knobs through MF_P (never set in matches)
 if os.environ.get("MF_P"):
@@ -206,6 +207,7 @@ class Brain:
         self.safe_circle = (0.0, 0.0, 1e6)
         self.dmg_in = []
         self.dmg_out = []
+        self.kill_spots = []
         self.juke_dir = 1.0
         self.cover_goal = None
         self.cover_t = -99.0
@@ -379,7 +381,9 @@ class Brain:
                 self.pickups.pop(ev.get("id"), None)
             elif et == "kill":
                 tid = ev.get("target")
-                self.enemies.pop(tid, None)
+                dead = self.enemies.pop(tid, None)
+                if dead is not None:
+                    self.kill_spots.append((t, dead["pos"][0], dead["pos"][1], dead["pos"][2]))
         for s in obs.get("sounds") or []:
             k = s.get("kind")
             b = s.get("bearing")
@@ -1079,6 +1083,21 @@ class Brain:
             best = (perp[0] * self.juke_dir, perp[1] * self.juke_dir)
         return best
 
+    def kill_loot(self, t, px, py, threats):
+        """Where a recent kill dropped its cubes, if no live threat is within 60 m of us or of it."""
+        self.kill_spots = [k for k in self.kill_spots if t - k[0] < 25.0][-4:]
+        cx, cy, cr = self.safe_circle
+        best, bd = None, 170.0
+        for (kt, kx, ky, kz) in self.kill_spots:
+            d = hyp(kx - px, ky - py)
+            if d < 3.0 or d > bd or hyp(kx - cx, ky - cy) > cr - 5.0 or not self.reachable(kx, ky):
+                continue
+            if any(hyp(e["pos"][0] - kx, e["pos"][1] - ky) < 60.0 or hyp(e["pos"][0] - px, e["pos"][1] - py) < 60.0
+                   for e in threats if self.t - e["seen"] < 3.0):
+                continue
+            best, bd = (kx, ky), d
+        return best
+
     def fight_loot(self, obs, t, px, py, pz, hpf, kinds, target):
         """A cube within 30 m, a better weapon within 200 m, or a supply drop worth taking now."""
         cx, cy, cr = self.safe_circle
@@ -1262,6 +1281,10 @@ class Brain:
     def wander(self, obs, me, t, px, py, pz, hpf, energy, kinds, threats, zx, zy, zr, lx, ly, lr,
                nx_, ny_, nr, ss, farm):
         """Loot, then hold a covered spot inside the next zone."""
+        if P["killloot"] and hpf > 0.3:
+            ks = self.kill_loot(t, px, py, threats)
+            if ks is not None:
+                return self.nav_to(px, py, ks[0], ks[1]), energy > 50, "killloot"
         if P["econ"]:
             r = self.econ_goal(obs, t, px, py, pz, hpf, kinds, zx, zy, zr)
             if r is not None:
