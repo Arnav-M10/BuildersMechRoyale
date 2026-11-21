@@ -215,3 +215,6 @@ Queue: gn45 `0cfda6d`, gn46 `2333e0b`, gn47 `798f661`, gn48 `51dd4d7`.
 ## ALERT 12:20 PM (Mac): 273 teams; top-32 line now 5.54 (32nd ImagineLosing 5.54). We're 48th at 5.29.
 Qualifying uses the CHOSEN submission's practice score ("your chosen submission ... locks with its practice score"), so only switch the pick to something ≥ the current pick.
 gn (giddy + nav/cover/stuck) 3 draws 5.10/5.21/5.21 (mean 5.17, σ≈0.06) → salt luck can't reach 5.54; need a real +0.4.
+| Sat 12:22 PM (Mac) | `0cfda6d` (gn45) | gn + salt 45 | 4.94 |
+| Sat 12:33 PM (Mac) | `2333e0b` (gn46) | gn + salt 46 | scoring… |
+gn 4 draws mean 5.12. Codex dispatched (12:25): structural port — clearance raster nav (g_clear), EscapePlan (g_escape), laser pre-charge (g_laserpre), NPC memory (g_npcmem).
