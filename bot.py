@@ -251,19 +251,25 @@ class Brain:
             return 0.0
         return g.ground(x, y)
 
+    NOW = 0.0  # match time of the observation being handled
+
     @staticmethod
     def zone_at(z, t):
+        """The zone circle at match time t. The server reports the CURRENT circle (already moved
+        during a shrink, verified on live observations), so forecast only from now onward."""
         c = z.get("center") or [0.0, 0.0]
         r = float(z.get("radius", 1e4))
         nc = z.get("next_center") or c
         nr = float(z.get("next_radius", r))
         ss = float(z.get("shrink_start", 1e9))
         se = float(z.get("shrink_end", 1e9))
-        if t <= ss:
+        now = Brain.NOW
+        if t <= max(ss, now):
             return c[0], c[1], r
-        if se <= ss or t >= se:
+        start = max(ss, now)
+        if se <= start or t >= se:
             return nc[0], nc[1], nr
-        s = (t - ss) / (se - ss)
+        s = (t - start) / (se - start)
         return c[0] + (nc[0] - c[0]) * s, c[1] + (nc[1] - c[1]) * s, r + (nr - r) * s
 
     # ----------------------------------------------------------------- memory
@@ -410,6 +416,7 @@ class Brain:
         self.deadline = t_recv + 0.026
         t = float(obs.get("t", 0.0))
         self.t = t
+        Brain.NOW = t
         me = obs["self"]
         px, py, pz = me["pos"]
         vx, vy, vz = me.get("vel") or [0.0, 0.0, 0.0]
@@ -1028,7 +1035,10 @@ class Brain:
             if len(self.hist) >= 15:
                 t0 = self.hist[-15][0]
                 # commanded to walk for ~1.5 s but barely moving: wedged on something
-                if t - t0 < 2.0 and all(h[3] > 0.6 and h[4] < 1.5 for h in self.hist[-15:]):
+                x0, y0 = self.hist[-15][1], self.hist[-15][2]
+                pushing = all(h[3] > 0.6 for h in self.hist[-15:])
+                slow = all(h[4] < 1.5 for h in self.hist[-15:]) or hyp(px - x0, py - y0) < 1.0
+                if t - t0 < 2.0 and pushing and slow:
                     a = math.atan2(mv[1], mv[0]) + (PI / 2 if self.rng.random() < 0.5 else -PI / 2)
                     self.stuck_dir = (math.cos(a), math.sin(a))
                     self.stuck_log = [x for x in self.stuck_log if t - x < 12.0] + [t]
