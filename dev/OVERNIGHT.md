@@ -106,4 +106,12 @@ NOTE: the chosen practice submission IS the bot that plays qualifying/final, so 
 | Sat 5:23 AM (Mac) | `87a0559` (s2f) | salt 2 + FFA layer on: practice-neutrality check (expect exactly 5.29) | **5.29 exactly**: FFA layer confirmed practice-neutral |
 Plan: if s2f reproduces 5.29, all further salt draws include the FFA layer so any lucky draw is also the best final bot.
 Salt+FFA draws ready: s4f `a5fac69`, s5f `5118cbd`, s6f `04acbfc`, s7f `2d4148f`. More live FFA A/B running (layer on in room 2, off in room 4, 6 each).
-| Sat 5:31 AM (Mac) | `a5fac69` (s4f) | salt 4 + FFA layer | scoring… |
+| Sat 5:31 AM (Mac) | `a5fac69` (s4f) | salt 4 + FFA layer | 4.79 |
+
+## FFA live A/B (12 matches each, real house bots, free-for-all)
+- Layer ON: 3,1,1,7,1,11,1,4,1,4,12,7 → **11.6 pts/match**
+- Layer OFF: 11,6,5,8,1,1,7,13,1,5,7,1 → 10.5 pts/match
+Directional +1.1; never affects practice (s2f = 5.29 exactly). 
+
+## !!! FINAL ENTRY PICK !!!
+Picked **s2f (BB-F1AB9EAF, `87a0559`, 5.29, FFA layer on)** as the final entry (manual pick). A manual pick STICKS: if a later draw scores higher, it must be re-picked explicitly on the page.
