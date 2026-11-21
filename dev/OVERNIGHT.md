@@ -197,4 +197,8 @@ Live FFA test running: giddy core (16) vs our core (8).
 ### FFA live: giddy core (16): 2,1,2,3,2,5,5,15,2,16,5,2,2,9,1,1 → 11.4 vs our core (8): 7,2,2,15,9,15,1,1 → 9.5 (pooled ours ≈11.6 over 48). Giddy core is safe in FFA (no errors) → eligible as final if a draw beats 5.29.
 | Sat 10:31 AM (Mac) | `d7ab4cf` (gd41) | giddy core + salt 41 + FFA pkg | 5.02 |
 Giddy core 3 draws: 4.98/5.17/5.02 (mean 5.06) vs ours ≈4.93 (11 draws) → modest edge; continuing giddy draws.
-| Sat 10:55 AM (Mac) | `0113801` (gd42) | giddy core + salt 42 + FFA pkg | scoring… |
+| Sat 10:55 AM (Mac) | `0113801` (gd42) | giddy core + salt 42 + FFA pkg | 5.08 |
+Giddy core 4 draws mean 5.06 (tight spread 4.98–5.17).
+giddy's newest squad params: FightBoost dropped, HPw 0.21, LethalK 0.7 (Backstab exists but is off in squad). Added knobs g_hpw/g_lethalk/g_fb → "giddy v2" draws gv2 `45a5a74`, gv50 `1327a58`, gv51 `bfded98` (docker-checked).
+| Sat 11:03 AM (Mac) | `1327a58` (gv50) | giddy v2 + salt 50 + FFA pkg | scoring… |
+Codex dispatched: giddy fidelity audit (port 5.06 vs original 6.00).
