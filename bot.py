@@ -40,6 +40,11 @@ P = {
     "g_zonelaser": False,  # don't charge a laser when outside zone or needing urgent rotation
     "g_chargefix": False,  # account precisely for 0.01 s rounded laser charge observations
     "g_critical_recovery": False, # recover from <25% to 60% before resuming fights
+    "g_hunt_early": False, # pressure one or two known early hunters at our weapon range
+    "g_dmg_up": False,    # prioritize burst/sustained weapon damage upgrades over defense
+    "g_focus": False,     # select the lowest estimated TTK, including rear-arc opportunities
+    "g_late_hold": False, # stage at reachable cover in the next circle and fight locally
+    "g_killloot": False,  # after a safe confirmed kill, collect its dropped cube pile
     "chase": True,        # push toward a target we cannot see when healthy
     "retreat_hp": 0.38,   # break line of sight below this HP fraction
     "laser_band": (50.0, 120.0),
@@ -159,6 +164,15 @@ GIDDY_LASER_UPGRADE_RANK = [
     "sensors", "jets", "laser_pierce",
 ]
 
+# Kill-speed order: gun upgrades are always available, while laser upgrades appear only
+# when carried. Defensive and sustain upgrades follow the damage multipliers.
+GIDDY_DAMAGE_UPGRADE_RANK = [
+    "laser_damage", "gun_damage", "gun_rate", "gun_mag", "laser_charge",
+    "plating", "armor", "nanites", "lightning_efficiency", "lightning_range",
+    "servos", "gun_velocity", "gyros", "lightning_chain", "reactor", "capacitor",
+    "mortar_reload", "mortar_splash", "mortar_velocity", "sensors", "jets", "laser_pierce",
+]
+
 
 def lead_vel(v, pv, T):
     """Effective horizontal velocity for leading a shot T seconds ahead. Fitted on 62k samples of
@@ -270,6 +284,8 @@ class Brain:
         self.target_t_last = -99.0
         self.giddy_stick_id = None
         self.giddy_stick_at = -99.0
+        self.giddy_late_anchor = None
+        self.giddy_late_search_at = -99.0
         self.strafe = 1.0
         self.strafe_until = 0.0
         self.path = None
@@ -609,9 +625,10 @@ class Brain:
         ch = offer.get("choices") or []
         best, bi = 1e9, 0
         if P["core"] == "giddy":
+            rank = GIDDY_DAMAGE_UPGRADE_RANK if P.get("g_dmg_up", False) else GIDDY_LASER_UPGRADE_RANK
             for i, c in enumerate(ch):
                 cid = c.get("id")
-                r = GIDDY_LASER_UPGRADE_RANK.index(cid) if cid in GIDDY_LASER_UPGRADE_RANK else 50
+                r = rank.index(cid) if cid in rank else 50
                 if r < best:
                     best, bi = r, i
             return bi
@@ -716,6 +733,27 @@ class Brain:
             e["dist"] = d
             tlist.append(e)
 
+        known_hunters = sum(1 for e in self.enemies.values() if t - e.get("seen", -99.0) <= 5.0)
+        early_hunt = (core_giddy and P.get("g_hunt_early", False) and t <= 120.0 and alive >= 12 and
+                      1 <= known_hunters <= 2 and len(tlist) <= 2)
+
+        def giddy_expected_dps(dist):
+            cube_mult = 1.0 + self.dmg_per_cube * min(cubes, self.stat_cap)
+            dps = 0.0
+            for w in slots:
+                if not w:
+                    continue
+                kind = w.get("kind")
+                st = w.get("stats") or self.W.get(kind) or {}
+                if kind == "gun" and dist < float(st.get("range", 230.0)):
+                    dps += 0.28 * float(st.get("damage", 45.0)) / max(0.1, float(st.get("cooldown", 0.24)))
+                elif kind == "laser" and dist < float(st.get("range", 280.0)):
+                    cycle = float(st.get("charge", 0.75)) + float(st.get("cooldown", 1.65))
+                    dps += 0.55 * float(st.get("damage", 315.0)) / max(0.1, cycle)
+                elif kind == "lightning" and dist < float(st.get("range", 45.0)):
+                    dps += 0.45 * float(st.get("damage", 60.0)) / max(0.1, float(st.get("cooldown", 0.25)))
+            return max(1.0, dps * cube_mult)
+
         target = None
         best = 1e18
         avoid = None
@@ -725,7 +763,7 @@ class Brain:
             d = e["dist"]
             ehp = e.get("hp") or 1400.0
             if core_giddy:
-                e["engage"] = late or self.engageable(e, px, py, t, vx, vy)
+                e["engage"] = late or (early_hunt and e["los"]) or self.engageable(e, px, py, t, vx, vy)
             if ffa_active and not self.ffa_engageable(e, t, alive, hpf, current_target_id):
                 if avoid is None or d < avoid["dist"]:
                     avoid = e
@@ -734,16 +772,26 @@ class Brain:
                 if not e["engage"] or not e["los"] or d > 240.0:
                     continue
                 emax = e.get("max_hp") or 1400.0
-                s = d + P["g_hpw"] * float(ehp)
-                if float(ehp) <= 0.3 * float(emax):
-                    s -= 200.0
-                if e["id"] == self.giddy_stick_id and t - self.giddy_stick_at < 2.0:
-                    s -= 200.0
-                if t - self.attacked_by.get(e["id"], -99.0) < 4.0:
-                    s -= 40.0
+                if P.get("g_focus", False):
+                    aim = e.get("aim") or [0.0, 0.0]
+                    to_us = math.atan2(py - e["pos"][1], px - e["pos"][0])
+                    rear_mult = 1.5 if abs(wrap(to_us - float(aim[0]))) > PI * 0.5 else 1.0
+                    ttk = (float(ehp) / rear_mult) / giddy_expected_dps(d)
+                    s = ttk + 0.012 * d
+                    if e["id"] == self.giddy_stick_id and t - self.giddy_stick_at < 2.0:
+                        s -= 1.5
+                    if t - self.attacked_by.get(e["id"], -99.0) < 4.0:
+                        s -= 0.6
+                else:
+                    s = d + P["g_hpw"] * float(ehp)
+                    if float(ehp) <= 0.3 * float(emax):
+                        s -= 200.0
+                    if e["id"] == self.giddy_stick_id and t - self.giddy_stick_at < 2.0:
+                        s -= 200.0
+                    if t - self.attacked_by.get(e["id"], -99.0) < 4.0:
+                        s -= 40.0
                 if P.get("g_frontarc", False) and t - self.rear_attacked_by.get(e["id"], -99.0) < 4.0:
-                    # Aim/fire follow the selected target: favor the visible mech whose last
-                    # hit came through our rear arc so the next exchange faces that shooter.
+                    # Favor the visible mech that most recently hit us through the rear arc.
                     s -= 160.0
                 ex_, ey_ = e["pos"][0], e["pos"][1]
                 ux_, uy_ = unit(px - ex_, py - ey_)
@@ -1366,6 +1414,22 @@ class Brain:
             hp_now = float(me.get("hp", 1.0))
             finishing = target is not None and target["dist"] < 120.0 and (
                 float(target.get("hp") or 1400.0) < 200.0 or float(target.get("hp") or 1400.0) < hp_now * 0.5)
+            late_anchor_active = False
+            if P.get("g_late_hold", False):
+                anchor_valid = False
+                if self.giddy_late_anchor is not None:
+                    anc = self.giddy_late_anchor
+                    pad = min(8.0, nr * 0.25)
+                    anchor_valid = hyp(anc[0] - nx_, anc[1] - ny_) <= max(0.0, nr - pad)
+                if not anchor_valid:
+                    self.giddy_late_anchor = None
+                if (self.giddy_late_anchor is None and t >= 130.0 and
+                        t - self.giddy_late_search_at >= 3.0):
+                    self.giddy_late_search_at = t
+                    self.giddy_late_anchor = self.giddy_late_cover_goal(px, py, threats, obs.get("zone") or {})
+                late_anchor_active = self.giddy_late_anchor is not None
+            else:
+                self.giddy_late_anchor = None
             dropheal_mode = (self.giddy_retreat or hpf < 0.6) and not finishing
             dropheal_goal = (self.giddy_dropheal_goal(obs, px, py, walk, visible_threats)
                              if P.get("g_dropheal", False) and dropheal_mode else None)
@@ -1438,7 +1502,9 @@ class Brain:
                             (e.get("los") and e.get("dist", 1e9) < 150.0))
                 finish_range = (20.0 if float(target.get("hp") or 1400.0) <
                                 0.38 * float(target.get("max_hp") or 1400.0) and hpf > 0.42 and crowd <= 2 else None)
-                mv = self.giddy_fight_move(t, px, py, kinds, target, energy, tlist, want_los, finish_range)
+                hold_anchor = self.giddy_late_anchor if late_anchor_active else None
+                mv = self.giddy_fight_move(t, px, py, kinds, target, energy, tlist, want_los,
+                                           finish_range, hold_anchor)
                 if lit is not None and d > 50.0 and energy > 55.0 and want_los > 0.0:
                     boost = True
                 if P["g_fb"] and energy > 40.0 and not self.laser_charging_now and (lit is None or energy > 60.0):
@@ -1457,6 +1523,15 @@ class Brain:
             elif zone_should and zdist > 2.0:
                 mv = self.nav_to(px, py, gx, gy, allow_climb=True)
                 label = "zone"
+            elif late_anchor_active:
+                ax, ay = self.giddy_late_anchor
+                ad = hyp(ax - px, ay - py)
+                if ad > 2.0:
+                    mv = self.nav_to(px, py, ax, ay, allow_climb=True)
+                    boost = energy > 45.0 and ad > 30.0
+                    label = "late-anchor"
+                else:
+                    mv, label = (0.0, 0.0), "late-hold"
             else:
                 choice = getattr(self, "_giddy_current_loot", None)
                 if choice is not None:
@@ -2059,6 +2134,32 @@ class Brain:
                 best, best_s = (x, y), score
         return best
 
+    def giddy_late_cover_goal(self, px, py, threats, zone):
+        """Find nearby cover concealed from recent hunters and inside the next circle."""
+        if self.geo is None:
+            return None
+        known = [e for e in threats if self.t - e.get("seen", -99.0) <= 3.0 and
+                 e.get("kind", "mech") == "mech" and hyp(e["pos"][0] - px, e["pos"][1] - py) < 230.0]
+        if not known:
+            # Use only recent, directional sound as a rough approach vector when no mech
+            # has been seen recently. The search still confirms actual map occlusion.
+            hints = sorted((h for h in self.hints if self.t - h[0] <= 3.0), key=lambda h: -h[0])[:2]
+            known = [{"pos": [px + math.cos(b) * 100.0, py + math.sin(b) * 100.0, self.ground(px, py)],
+                      "kind": "sound"} for _, b, _ in hints]
+        if not known:
+            return None
+        goal = self.giddy_cover_goal(px, py, known, zone)
+        if goal is None:
+            return None
+        nc = zone.get("next_center") or zone.get("center") or [px, py]
+        nr = float(zone.get("next_radius", zone.get("radius", 1e9)))
+        pad = min(8.0, nr * 0.25)
+        if hyp(goal[0] - float(nc[0]), goal[1] - float(nc[1])) > max(0.0, nr - pad):
+            return None
+        if not self.geo.free(goal[0], goal[1]):
+            return None
+        return goal
+
     def giddy_cover_goal_bfs(self, px, py, threats, zone, hidden):
         """Bounded reachable-cell search matching brain.go:1475-1575."""
         g = self.geo
@@ -2101,7 +2202,8 @@ class Brain:
                 queue.append(nxt)
         return best
 
-    def giddy_fight_move(self, t, px, py, kinds, target, energy, tlist, want_los, range_override=None):
+    def giddy_fight_move(self, t, px, py, kinds, target, energy, tlist, want_los,
+                         range_override=None, anchor=None):
         """The stay-plus-16 six-metre search from brain.go:1367-1461."""
         g = self.geo
         if g is None:
@@ -2154,6 +2256,10 @@ class Brain:
                 if g.los(op[0], op[1], op[2] + oeye, body[0], body[1], body[2], step=1.5):
                     score -= 30.0
             score -= self.giddy_zone_penalty(zone, cx, cy, t)
+            if anchor is not None:
+                # Keep the fight near the chosen shelter, while LOS reward still permits
+                # a short peek when the current candidate cannot see the target.
+                score -= max(0.0, hyp(cx - anchor[0], cy - anchor[1]) - 5.0) * 3.5
             if cube is not None:
                 score += 1.5 * (hyp(cube[0] - px, cube[1] - py) - hyp(cube[0] - cx, cube[1] - cy))
             # geo exposes binary free/blocked navigation, not the source's clearance map;
@@ -2499,6 +2605,17 @@ class Brain:
             for cid, (pos, seen) in self.cubes_mem.items():
                 if hyp(pos[0] - px, pos[1] - py) < 105.0:
                     consider("cube", cid, pos, cube_v)
+            if P.get("g_killloot", False) and not danger:
+                recent_threats = [e for e in self.enemies.values() if now - e.get("seen", -99.0) < 3.0]
+                for kt, kx, ky, kz in self.kill_spots:
+                    d = hyp(kx - px, ky - py)
+                    if now - kt > 25.0 or d < 3.0 or d > 170.0:
+                        continue
+                    if any(hyp(e["pos"][0] - px, e["pos"][1] - py) < 60.0 or
+                           hyp(e["pos"][0] - kx, e["pos"][1] - ky) < 60.0 for e in recent_threats):
+                        continue
+                    consider("cube", ("kill", round(kt, 1), round(kx, 1), round(ky, 1)),
+                             (kx, ky, kz), cube_v * 1.5)
         if hpf > 0.5 and not danger and now < 1e9:
             for cid, (pos, chp, seen) in self.crates.items():
                 if hyp(pos[0] - px, pos[1] - py) < 150.0:
