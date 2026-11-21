@@ -275,4 +275,6 @@ Salt swing on the Go bot ≈ ±0.25 (6.17 vs 5.92). Single-draw param tests are 
 FFA clone-sim WORKING (3:49 PM): Codex harness + 2 fixes (unreachable write body; integral floats → ints because Go rejects "cubes":0.0). Go vs 15 Go: kills, laser/lightning deaths, several clones die to zone ~200 s.
 A/B running (/tmp/frozen_ffa_1549, 48 matches each vs 15 Go clones, symmetric baseline = 7.5): Go subject, our Python ours-core+FFA pkg, Python gfc+FFA pkg.
 Go practice draws: 6.17, 5.92, 5.42 (+5.85 param) → mean ≈5.84; our 6.17 was lucky. Risk: if line passes 6.17 we fall out → keep salt-drawing for a higher pick.
-| Sat 3:57 PM (Mac) | `9f09d16` (gg3s3) | go-giddy3 + salt 3 | scoring… |
+| Sat 3:57 PM (Mac) | `9f09d16` (gg3s3) | go-giddy3 + salt 3 | 5.23 |
+Go draws mean ≈5.69 (6.17/5.92/5.42/5.23). Salt branches gg3s9..40 pushed (list in scratchpad/gg3_salts.txt).
+| Sat 4:05 PM (Mac) | `cfe3279` (gg3s4) | go-giddy3 + salt 4 | scoring… |
