@@ -78,4 +78,19 @@ Pattern: giddygiddyboy's pieces (select, its tolerance via gtol) don't transplan
 ## Max mode (from 4:30 AM Mac)
 - Calibration sweep (12 workers, seeds 15000×96): every variant already scored for real, plus duck/killloot/precharge/juke, to measure sim-vs-real agreement.
 - Codex resumed on the FFA layer.
-| Sat 4:31 AM (Mac) | `e4d06d0` (exp/v15) | v6 + duck out of sight while the gun reloads | scoring… |
+| Sat 4:31 AM (Mac) | `e4d06d0` (exp/v15) | v6 + duck out of sight while the gun reloads | 4.75 (worse) |
+
+## Calibration verdict: the sim is anti-correlated with the real server for combat changes
+| Variant | Sim (vs v6, 96 seeds) | Real |
+|---|---|---|
+| select | +0.70 | −0.34 |
+| slow strafe | +1.10 | −0.36 |
+| gtol | +0.22 | −0.34 |
+| upg inv | +0.10 | −0.23 |
+| laser145 | +0.26 | +0.00 |
+| posearch | +0.26 | −0.15 |
+Our simulated house bots don't punish predictable movement or wasted shots like the real ones. Sim stopped; real submissions only.
+
+## Strategy shift: seed-salt draws
+Scoring is deterministic per commit, but any change reshuffles the 48 matches by about ±0.2. The practice board is only the top-32 gate (qualifying and the final use new seeds), so the same strategy with different RNG salts gives honest extra draws; the best counts. Base = main (v6 behaviour). Salts s1 `93975b3`, s2 `fd87762`, s3 `c5cf048`.
+| Sat 4:56 AM (Mac) | `93975b3` (s1) | v6 + RNG salt 1 | scoring… |
