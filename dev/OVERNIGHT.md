@@ -240,6 +240,7 @@ Codex dispatched: mine all READMEs + g_dropheal / g_zonelaser / g_chargefix.
 KEY INSIGHT: track page says house bots "never fight each other, and hunt you weakest first (one early, more as you thin them out, all of them late)" → practice score ≈ kills before we die. Goal 7+ = ~7 kills/life.
 Codex drastic patch merged: g_dropheal, g_zonelaser, g_chargefix, g_critical_recovery (dev/IDEAS_OTHERS.md). Draws gx62 `6ce64af`, gx63 `94350b3` = gfc + drops + all four (docker PASS).
 Codex dispatched: kill-rate levers (g_hunt_early, g_dmg_up, g_focus, g_late_hold).
-| Sat 2:04 PM (Mac) | `6ce64af` (gx62) | gfc + drops + dropheal/zonelaser/chargefix/critical | scoring… |
+| Sat 2:04 PM (Mac) | `6ce64af` (gx62) | gfc + drops + dropheal/zonelaser/chargefix/critical | 4.92 |
 Label tap (sim, gx config, 4 matches): drop capture works (105 'loot:drop-hold' decisions) but 858 'idle' decisions: the giddy core stands still when there's no target/loot.
 User: use the sim + 14 cores, fan noise OK. Calibration running (/tmp/frozen_calib_1406): 8 configs × 64 matches, to compare sim ranking with ~40 real draws.
+Transplants from JishnuMadav onto the giddy core: drops 5.10, full set 4.92 vs gfc 5.23 → not helping (as their README warns).
