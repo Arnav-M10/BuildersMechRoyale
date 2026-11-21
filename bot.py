@@ -674,7 +674,7 @@ class Brain:
                     hyp(self.path_goal[0] - gx, self.path_goal[1] - gy) > 6.0 or
                     self.t - self.path_t > 4.0 or not self.path)
             if need and self.time_left() > 0.012:
-                p = g.astar(px, py, gx, gy, max_nodes=2500)
+                p = g.astar(px, py, gx, gy, max_nodes=2500, deadline=self.deadline - 0.004)
                 self.path = p
                 self.path_goal = (gx, gy)
                 self.path_t = self.t

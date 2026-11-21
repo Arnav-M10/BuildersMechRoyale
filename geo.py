@@ -12,7 +12,10 @@ import math
 import os
 import pickle
 import sys
+import time
 from array import array
+
+_now = time.perf_counter
 
 CACHE_VERSION = 3
 NAV = 2            # nav node spacing in metres (every 2nd terrain vertex)
@@ -415,7 +418,7 @@ class Geo:
                 return False
         return True
 
-    def astar(self, sx, sy, gx, gy, max_nodes=6000):
+    def astar(self, sx, sy, gx, gy, max_nodes=6000, deadline=None):
         """Weighted A* on the nav grid. Returns a list of (x, y) waypoints (excluding the start),
         ending at the goal node, or at the explored node closest to the goal."""
         s = self.nearest_free(sx, sy)
@@ -452,6 +455,8 @@ class Geo:
                 break
             n += 1
             if n > max_nodes:
+                break
+            if deadline is not None and (n & 127) == 0 and _now() > deadline:
                 break
             hk = f - gk
             if hk < besth:
