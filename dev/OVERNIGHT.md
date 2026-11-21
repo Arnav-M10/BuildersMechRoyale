@@ -152,3 +152,10 @@ Full-package draws built: s12F `42cfde3`, s13F `5e5b798`, s14F `bedf199`, s15F `
 | Sat 7:03 AM (Mac) | `be1e9e1` (s2F) | salt 2 + FULL FFA package: expect exactly 5.29, then re-pick it as the final entry | **5.29 exactly → PICKED as final entry** |
 | Sat 7:23 AM (Mac) | `42cfde3` (s12F) | salt 12 + full FFA package | 5.23 |
 Live round 4 running: F (final config) vs F+lurk to 120 s/7 alive vs F+ffa_juke (FFA-only laser juke).
+
+### FFA live round 4 (8 each)
+- F final config: 15,1,6,2,2,7,1,1 → 11.6
+- F + lurk to 120 s/7: 2,2,7,1,1,4,15,1 → 11.9 (≈ same; keep 75 s/9)
+- F + ffa_juke: 4,10,11,14,1,9,2,2 → 9.4 (worse; juke stays off)
+Final config pooled: 12.2 pts/match over 16 live matches.
+| Sat 7:45 AM (Mac) | `5e5b798` (s13F) | salt 13 + full FFA package | scoring… |
