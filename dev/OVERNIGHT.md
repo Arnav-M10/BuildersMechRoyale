@@ -225,4 +225,8 @@ gn 5 draws mean 5.15. Codex structural port merged (default off; dev/GIDDY_STRUC
 Codex debate dispatched (12:57): new practice levers (facing/rear armor, sensor contact-breaking, zone timing, HP tiebreak…).
 gs (full structural port: clear/escape/laserpre/npcmem) 2 draws 5.08/4.83 (mean 4.96) < gn 5.15 → structural knobs stay OFF.
 Codex levers merged (dev/LEVERS.md): g_frontarc (face rear attackers / sound bearings), g_cube_guard (no size-only cube detours past cap). Draws gfc49 `73a3e24`, gfc50 `5e7fc87`, gfc51 `5fb323a` = gn + both levers (docker PASS).
-| Sat 1:22 PM (Mac) | `73a3e24` (gfc49) | gn + frontarc + cube_guard + salt 49 | scoring… |
+| Sat 1:22 PM (Mac) | `73a3e24` (gfc49) | gn + frontarc + cube_guard + salt 49 | 5.19 |
+| Sat 1:34 PM (Mac) | `5e7fc87` (gfc50) | gn + frontarc + cube_guard + salt 50 | scoring… |
+
+## FOR THE USER (decision needed): giddygiddyboy's repo went private/deleted ~1:35 PM (Mac)
+Our best candidates use core="giddy", a Python re-implementation of their MIT-licensed decision logic made while the repo was public. I added NOTICE.md with attribution. I did NOT do a literal line-by-line translation (planned, then cancelled once the author withdrew the repo). Please decide whether you're comfortable entering a giddy-core build; s2G (5.29, our own core) is still the pick.
