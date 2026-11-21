@@ -7,7 +7,7 @@ here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 res = {}
 for v in variants:
     env = dict(os.environ, MF_P=json.dumps(v.get("p", {})))
-    out = subprocess.run([sys.executable, "dev/sim/run.py", "--matches", str(n), "--seed", str(seed), "--jobs", "14",
+    out = subprocess.run([sys.executable, "dev/sim/run.py", "--matches", str(n), "--seed", str(seed), "--jobs", os.environ.get("TUNE_JOBS", "8"),
                           "--no-validate", "--", sys.executable, "-u", v.get("bot", "bot.py")],
                          cwd=here, env=env, capture_output=True, text=True).stdout
     sc = {int(m.group(1)): int(m.group(2)) for m in re.finditer(r"seed (\d+): place \d+ score (\d+)", out)}
