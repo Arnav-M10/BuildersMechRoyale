@@ -683,8 +683,8 @@ func (b *Brain) step(o *Obs, act *Action) {
 	zdist := hyp(zgx-x, zgy-y)
 	tNeed := zdist*1.45/st.WalkSpeed + 4
 	deadline := b.zoneDeadline(z, x, y, 8)
-	zoneMust := !me.InZone || now+tNeed+3 >= deadline
-	zoneShould := now+tNeed+14 >= deadline
+	zoneMust := !me.InZone || now+tNeed+15 >= deadline
+	zoneShould := now+tNeed+40 >= deadline
 
 	escJump := false
 	switch {
@@ -832,7 +832,7 @@ func (b *Brain) step(o *Obs, act *Action) {
 
 			if hx, hy, ok := b.home(o); ok && hyp(hx-x, hy-y) > 3 {
 				mx, my = b.travel(me, hx, hy)
-				if !danger && now-b.lastHurt > 6 && !b.openOn {
+				if false && !danger && now-b.lastHurt > 6 && !b.openOn {
 					q := math.Min(1, 4.6/st.WalkSpeed)
 					mx, my = mx*q, my*q
 				}
