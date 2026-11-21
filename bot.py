@@ -50,7 +50,7 @@ P = {
     "fightloot": True,    # mid-fight: scoop cubes <30 m, fetch a better weapon <200 m, take drops
     "econ": False,        # TTUN-style economy: hunt drones/crates/drops for cubes; armor/plating/nanites first
     "killloot": False,    # walk back to where our kills died (their cubes + 2 drop there) when no threat is close
-    "gtol": False,        # gun fires on its own lead solution with TTUN tolerance 1.2*atan(2.2*scale/d)
+    "gtol": True,         # gun fires on its own lead solution with TTUN tolerance 1.2*atan(2.2*scale/d)
     "precharge": False,   # start a laser charge on a target within 60 m even without line of sight
     "wdist": False,       # with want_d: lightning 30 m, laser want_d, gun-only 70 m; >=70 m if outnumbered or vs lightning
 }
