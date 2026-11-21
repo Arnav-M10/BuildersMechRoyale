@@ -202,4 +202,6 @@ Giddy core 4 draws mean 5.06 (tight spread 4.98–5.17).
 giddy's newest squad params: FightBoost dropped, HPw 0.21, LethalK 0.7 (Backstab exists but is off in squad). Added knobs g_hpw/g_lethalk/g_fb → "giddy v2" draws gv2 `45a5a74`, gv50 `1327a58`, gv51 `bfded98` (docker-checked).
 | Sat 11:03 AM (Mac) | `1327a58` (gv50) | giddy v2 + salt 50 + FFA pkg | 4.65 |
 Codex dispatched: giddy fidelity audit (port 5.06 vs original 6.00).
-| Sat 11:21 AM (Mac) | `bfded98` (gv51) | giddy v2 + salt 51 + FFA pkg | scoring… |
+| Sat 11:21 AM (Mac) | `bfded98` (gv51) | giddy v2 + salt 51 + FFA pkg | 5.21 |
+giddy v2 2 draws 4.65/5.21 (mean 4.93) < v1 mean 5.06 → keep v1 params.
+Codex audit applied (dev/GIDDY_AUDIT.md): g_nav (path follower + isolated-region escape), g_cover (reachable BFS cover), g_stuck (faster unstick); default off. Draws: gn43 `0fc0e1c`, gn44 `69b98f5` (v1 + all three; docker PASS).
