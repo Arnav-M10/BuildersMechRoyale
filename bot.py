@@ -50,6 +50,9 @@ P = {
     "fightloot": True,    # mid-fight: scoop cubes <30 m, fetch a better weapon <200 m, take drops
     "econ": False,        # TTUN-style economy: hunt drones/crates/drops for cubes; armor/plating/nanites first
     "killloot": False,    # walk back to where our kills died (their cubes + 2 drop there) when no threat is close
+    "gtol": False,        # gun fires on its own lead solution with TTUN tolerance 1.2*atan(2.2*scale/d)
+    "precharge": False,   # start a laser charge on a target within 60 m even without line of sight
+    "wdist": False,       # with want_d: lightning 30 m, laser want_d, gun-only 70 m; >=70 m if outnumbered or vs lightning
 }
 # offline tuning only: the simulator may override knobs through MF_P (never set in matches)
 if os.environ.get("MF_P"):
@@ -137,11 +140,10 @@ def in_safe_zone(brain, obs, px, py, t):
     return hyp(px - cx, py - cy) < cr - 10.0
 
 
-UPGRADE_RANK_ECON = [
-    "armor", "plating", "nanites", "gun_damage", "laser_damage", "laser_charge", "gun_rate",
-    "lightning_efficiency", "gun_mag", "lightning_range", "gyros", "servos", "gun_velocity",
-    "capacitor", "reactor", "jets", "sensors", "lightning_chain", "laser_pierce",
-    "mortar_reload", "mortar_velocity", "mortar_splash",
+UPGRADE_RANK_ECON = [  # TTUN's exact order
+    "armor", "plating", "nanites", "lightning_efficiency", "laser_damage", "laser_charge", "gun_damage", "gun_rate",
+    "lightning_range", "lightning_chain", "gyros", "servos", "gun_mag", "capacitor", "reactor", "jets", "gun_velocity",
+    "sensors", "mortar_reload", "mortar_velocity", "mortar_splash", "laser_pierce",
 ]
 
 
@@ -477,7 +479,7 @@ class Brain:
             cands.append((d, e))
         cands.sort(key=lambda c: c[0])
         tlist = []
-        for d, e in cands[:6]:
+        for d, e in cands[:(10 if P["tsel"] else 6)]:
             ex, ey, ez = e["pos"]
             sc = 1.0 + self.size_per_cube * float(e.get("cubes") or 0)
             com = (ex, ey, ez + 4.5 * sc)
@@ -609,9 +611,24 @@ class Brain:
             aligned = ye1 <= tol_y and pe1 <= tol_p
             aligned_now = yaw_err <= tol_y and pit_err <= tol_p
             busy_fight = kind != "mech" and bool(visible_threats)
+            gun_ok = aligned
+            if P["gtol"] and gun_w is not None:
+                # the gun's own lead solution, judged on its own (not on a laser's hitscan aim)
+                tl = d3 / gspeed + 0.05
+                gp = com
+                for _ in range(2):
+                    gx_, gy_ = lead_vel(svel, pvel, tl)
+                    gp = (com[0] + gx_ * tl, com[1] + gy_ * tl, com[2] + clamp(svel[2] * tl, -3.0, 3.0))
+                    tl = math.sqrt((gp[0] - px) ** 2 + (gp[1] - py) ** 2 + (gp[2] - mz) ** 2) / gspeed + 0.05
+                ghd = hyp(gp[0] - px, gp[1] - py)
+                gy_err = abs(wrap(math.atan2(gp[1] - py, gp[0] - px) - my_aim[0]))
+                gp_err = abs(clamp(math.atan2(gp[2] - mz, max(ghd, 0.1)), min_pitch, max_pitch) - my_aim[1])
+                gtl = 1.2 * math.atan2(2.2 * (rad / 2.5), max(ghd, 1.0))
+                gun_ok = (max(0.0, gy_err - turn_rate * 0.05) <= gtl and
+                          max(0.0, gp_err - pitch_rate * 0.05) <= 2.0 * gtl + 0.03)
             if los_ok and not busy_fight:
                 # gun
-                if gun_w is not None and d3 < grange * 0.98 and aligned:
+                if gun_w is not None and d3 < grange * 0.98 and gun_ok:
                     if (gun_w.get("reload") or 0) <= 0 and (gun_w.get("ammo") is None or gun_w.get("ammo", 1) > 0):
                         fire[gun_slot] = True
                 # lightning: auto-targets nearest in its cone
@@ -645,7 +662,8 @@ class Brain:
                         fire[laser_slot] = True
                 else:
                     ready = (laser_w.get("cooldown") or 0) <= 0.05 and t >= self.shorted_until
-                    if ready and los_ok and in_range and worth and yaw_err < 0.6:
+                    pre = P["precharge"] and kind == "mech" and d3 < 60.0
+                    if ready and (los_ok or pre) and in_range and worth and yaw_err < 0.6:
                         fire[laser_slot] = True
             aim_point = tp
         else:
@@ -707,7 +725,7 @@ class Brain:
         """A crate or a passive NPC to shoot while no mech is around."""
         best, bs = None, 1e18
         for cid, (pos, chp, seen) in self.crates.items():
-            if self.t - seen > 0.01:
+            if self.t - seen > 0.01 or (P["econ"] and hpf <= 0.4):
                 continue
             d = hyp(pos[0] - px, pos[1] - py)
             if d > 110:
@@ -723,7 +741,8 @@ class Brain:
                 if self.t - n["seen"] > 0.01:
                     continue
                 d = hyp(n["pos"][0] - px, n["pos"][1] - py)
-                if d > 100 or (n.get("hp") or 350) <= 0:
+                nhp = n.get("hp")
+                if d > 100 or (nhp is not None and nhp <= 0):
                     continue
                 s = d + 30
                 if s < bs:
@@ -1104,6 +1123,8 @@ class Brain:
         if hpf > 0.3:
             best, bd = None, 30.0
             for cid, (pos, seen) in self.cubes_mem.items():
+                if t - seen > 0.01 or not self.reachable(pos[0], pos[1]):
+                    continue
                 d = hyp(pos[0] - px, pos[1] - py)
                 if d < bd and abs(pos[2] - pz) < 4.0 and hyp(pos[0] - cx, pos[1] - cy) < cr - 3.0:
                     best, bd = (pos[0], pos[1], "cube"), d
@@ -1194,6 +1215,13 @@ class Brain:
             radial = -1.0
         if P["want_d"] > 0:
             want = P["want_d"]
+            if P["wdist"]:
+                if has_lit and energy > 25:
+                    want = 30.0
+                elif not has_laser:
+                    want = 70.0
+                if len(visible_threats) >= 2 or ("lightning" in ew and not has_lit):
+                    want = max(want, 70.0)
             ehp_abs = e.get("hp")
             if ehp_abs is not None and float(ehp_abs) < 300.0 and hpf > 0.3:
                 want = min(want, 40.0)  # finish it
@@ -1470,7 +1498,8 @@ class Brain:
             for n in self.npcs.values():
                 pos = n["pos"]
                 d = hyp(pos[0] - px, pos[1] - py)
-                if d > 170 or (n.get("hp") or 350) <= 0 or not ok(pos[0], pos[1]):
+                nhp = n.get("hp")
+                if d > 170 or (nhp is not None and nhp <= 0) or self.t - n["seen"] > 5.0 or not ok(pos[0], pos[1]):
                     continue
                 sc = d - 20.0
                 if sc < bs:
