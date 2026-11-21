@@ -8,6 +8,11 @@ import (
 
 const lat = 0.075
 
+// FFA switches are evaluated only after the practice classifier opts out.
+const (
+	ffaLurkMode = true
+)
+
 type Track struct {
 	MechSeen
 	Seen    float64
@@ -358,6 +363,12 @@ func (b *Brain) observe(o *Obs) {
 	}
 }
 
+
+// ffaOnly excludes practice during the classifier warmup and while squad mode is active.
+func (b *Brain) ffaOnly() bool {
+	return !b.pracOn && (b.notPractice || !b.base.Practice)
+}
+
 func (b *Brain) zoneAt(z *Zone, t float64) circle {
 	if t <= z.ShrinkStart || z.ShrinkEnd <= z.ShrinkStart {
 		return b.hold
@@ -570,6 +581,10 @@ func (b *Brain) step(o *Obs, act *Action) {
 			t.Engage = true
 		case aimed && t.Dist < 190:
 			t.Engage = true
+		}
+		if ffaLurkMode && b.ffaOnly() && now < 90 && o.Alive > 9 &&
+			now-t.HitMe >= 4 && t.Dist >= 25 {
+			t.Engage = false
 		}
 		if t.Engage && !t.LOS && t.Dist < maxT && (hidden == nil || t.Dist < hidden.Dist) {
 			hidden = t
