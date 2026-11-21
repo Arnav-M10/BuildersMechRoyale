@@ -59,10 +59,10 @@ P = {
     "duck": False,        # gun-only and reloading: step to a spot within ~12 m out of the target's sight
     "select": False,      # engage only close/attacking/approaching/weak/aiming mechs, or late (giddygiddyboy rules)
     "posearch": False,    # fight movement = best of stay + 16 spots 6 m away (range, LOS when ready, crossfire, zone, cubes)
-    "ffa_detect": False,  # latch from crossfire or unexplained eliminations
-    "ffa_engage": False,  # only take qualifying FFA fights; otherwise avoid via cover
-    "ffa_hold": False,    # hold a covered position inside the next circle in the endgame
-    "salt": 0,            # mixed into the RNG seed (strafe timing etc.); the strategy itself is unchanged
+    "ffa_detect": True,   # latch from crossfire or unexplained eliminations
+    "ffa_engage": True,   # only take qualifying FFA fights; otherwise avoid via cover
+    "ffa_hold": True,     # hold a covered position inside the next circle in the endgame
+    "salt": 5,            # mixed into the RNG seed (strafe timing etc.); the strategy itself is unchanged
 }
 # offline tuning only: the simulator may override knobs through MF_P (never set in matches)
 if os.environ.get("MF_P"):
