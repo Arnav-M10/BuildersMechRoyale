@@ -222,6 +222,10 @@ def _run_match(job):
         while game.t < game.max_time and sum(1 for a in game.actors.values() if a.kind=="mech" and a.alive)>1:
             actions=actions_provider(game)
             game.step_decision(actions)
+            # Squad mode: house bots never fight each other, so once the subject is dead its
+            # place (the mechs alive at its death) is final. Skip the rest of the match.
+            if not ctx["ffa"] and not game.actors[0].alive:
+                break
         if game.t>=game.max_time:
             for a in game.actors.values():
                 if a.kind=="mech" and a.alive:

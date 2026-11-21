@@ -17,6 +17,32 @@ DECISION_TICKS = 2
 PI = math.pi
 TAU = 2.0 * math.pi
 
+_SOLID_PS = {}
+
+
+def _solid_prefix(g):
+    """2-D prefix sums over cells holding any solid interval, cached per map object."""
+    ps = _SOLID_PS.get(id(g))
+    if ps is not None:
+        return ps
+    from array import array
+    NX, NY = g.NX, g.NY
+    W = NX + 1
+    ps = array("i", [0]) * (W * (NY + 1))
+    lo, hi, multi = g.lo, g.hi, g.multi
+    for j in range(NY):
+        run = 0
+        row = j * NX
+        prev = j * W
+        cur = (j + 1) * W
+        for i in range(NX):
+            k = row + i
+            if lo[k] < hi[k] or k in multi:
+                run += 1
+            ps[cur + i + 1] = ps[prev + i + 1] + run
+    _SOLID_PS[id(g)] = ps
+    return ps
+
 
 def clamp(x, lo, hi):
     return lo if x < lo else hi if x > hi else x
@@ -1542,6 +1568,13 @@ class Match:
         i1 = min(g.NX - 1, int(math.ceil(x + radius - g.X0 + 0.5)))
         j0 = max(0, int(math.floor(y - radius - g.Y0 - 0.5)))
         j1 = min(g.NY - 1, int(math.ceil(y + radius - g.Y0 + 0.5)))
+        # O(1) early out: no solid cell at all in the bounding box (the common open-ground case)
+        if i1 >= i0 and j1 >= j0:
+            ps = _solid_prefix(g)
+            W = g.NX + 1
+            if (ps[(j1 + 1) * W + i1 + 1] - ps[j0 * W + i1 + 1]
+                    - ps[(j1 + 1) * W + i0] + ps[j0 * W + i0]) == 0:
+                return overlap
         low, high = feet_z + 0.05, feet_z + height - 0.05
         lo, hi = g.lo, g.hi
         multi = g.multi
