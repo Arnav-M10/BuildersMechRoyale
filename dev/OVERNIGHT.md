@@ -1,6 +1,6 @@
 # Overnight log (Sat 2026-11-21)
 
-Best real practice score so far: **3.81** (v2 `b5a3086`, v3 `2bbdf12`). Main plays like v3 with every new behaviour off by default.
+Best real practice score so far: **5.13** (v5 `2dfc546`). Main's defaults = v5 settings + later fixes.
 
 ## How candidates are judged
 - Calibrated sim (Codex), squad mode, 192 paired seeds per variant, from a frozen code snapshot.
@@ -31,4 +31,4 @@ Typical loss: a 130–160 m gun duel against the first hunter, then a flight acr
 ## Submissions (via Claude in Chrome)
 | Time | Commit | What | Score |
 |---|---|---|---|
-| Sat 2:55 AM | `2dfc546` (exp/v5) | berserk + 110 m + hp×dist targeting + mid-fight looting (sim: +1.02 ± 0.67 over base, 48 seeds) | scoring… |
+| Sat 2:55 AM | `2dfc546` (exp/v5) | berserk + 110 m + hp×dist targeting + mid-fight looting (sim: +1.02 ± 0.67 over base, 48 seeds) | **5.13** (from 3.81; above the 4.96 top-32 cutoff) |
