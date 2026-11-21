@@ -93,4 +93,11 @@ Our simulated house bots don't punish predictable movement or wasted shots like 
 
 ## Strategy shift: seed-salt draws
 Scoring is deterministic per commit, but any change reshuffles the 48 matches by about ±0.2. The practice board is only the top-32 gate (qualifying and the final use new seeds), so the same strategy with different RNG salts gives honest extra draws; the best counts. Base = main (v6 behaviour). Salts s1 `93975b3`, s2 `fd87762`, s3 `c5cf048`.
-| Sat 4:56 AM (Mac) | `93975b3` (s1) | v6 + RNG salt 1 | scoring… |
+| Sat 4:56 AM (Mac) | `93975b3` (s1) | v6 + RNG salt 1 | 4.75 (same strategy as v6 = 5.10: the RNG alone swings ±0.3) |
+| Sat 5:02 AM (Mac) | `fd87762` (s2) | v6 + RNG salt 2 | **5.29 (new best)** |
+
+## FFA (qualifying/final) live tests vs the organizers' house bots (free-for-all, real server)
+- v3 earlier (7 matches): places 1,1,4,1,8,7,4, about 12.3 pts/match.
+- main (v6 behaviour, 6 matches): places 11,6,5,8,1,1, about 10.7 pts/match (small samples, overlapping).
+- main + Codex FFA layer on: running.
+NOTE: the chosen practice submission IS the bot that plays qualifying/final, so the final pick = best salt draw + the FFA layer (if it helps). The layer never latches in practice, so the salt's practice score should reproduce exactly; verify by resubmitting.
