@@ -17,10 +17,10 @@ from array import array
 
 _now = time.perf_counter
 
-CACHE_VERSION = 3
+CACHE_VERSION = 5
 NAV = 2            # nav node spacing in metres (every 2nd terrain vertex)
 CLEAR_R = 3.0      # clearance from walls for nav nodes (mech radius 2.5 + margin)
-HEAD = 9.5         # a solid whose base is lower than ground + HEAD blocks a mech
+HEAD = 16.0        # a solid whose base is lower than ground + HEAD blocks a mech (mechs grow 5%/cube)
 STEP = 1.2         # step-up height
 TALL = 8.0         # solid this tall above ground counts as cover
 COVER_R = 6.0      # a cover node has a tall wall within this distance
@@ -212,6 +212,7 @@ class Geo:
 
         g.terr, g.lo, g.hi, g.multi = terr, lo, hi, multi
         g.NNX, g.NNY, g.nav = NNX, NNY, nav
+        g.comp, g.comp_size = _components(nav, NNX, NNY)
         g._index_cover(cover_nodes)
         g.cover_nodes = cover_nodes
         g._finish()
@@ -234,7 +235,7 @@ class Geo:
 
     # ------------------------------------------------------------------ cache
     STATE = ("X0", "Y0", "NX", "NY", "bounds", "terr", "lo", "hi", "multi", "NNX", "NNY", "nav",
-             "cover_nodes")
+             "cover_nodes", "comp", "comp_size")
 
     def save(self, path: str, src_hash: str) -> None:
         d = {k: getattr(self, k) for k in self.STATE}
@@ -399,6 +400,35 @@ class Geo:
                 return best
         return None
 
+    def comp_at(self, x, y):
+        """Connected walkable region id of the nav node nearest (x, y), or -1."""
+        k = self.nearest_free(x, y)
+        if k is None:
+            return -1
+        return self.comp[k]
+
+    def main_comp(self):
+        return max(range(len(self.comp_size)), key=lambda c: self.comp_size[c])
+
+    def nearest_in_comp(self, x, y, comp, maxr=40):
+        """Nearest free nav node of region `comp` around (x, y), as (x, y), or None."""
+        I, J = self.node_of(x, y)
+        NNX, NNY, nav, cm = self.NNX, self.NNY, self.nav, self.comp
+        if 0 <= I < NNX and 0 <= J < NNY and cm[J * NNX + I] == comp:
+            return self.node_xy(J * NNX + I)
+        for r in range(1, maxr + 1):
+            best, bd = None, 1e18
+            for dj in range(-r, r + 1):
+                for di in (-r, r) if abs(dj) != r else range(-r, r + 1):
+                    ii, jj = I + di, J + dj
+                    if 0 <= ii < NNX and 0 <= jj < NNY and cm[jj * NNX + ii] == comp:
+                        dd = di * di + dj * dj
+                        if dd < bd:
+                            bd, best = dd, jj * NNX + ii
+            if best is not None:
+                return self.node_xy(best)
+        return None
+
     def seg_free(self, ax, ay, bx, by, skip_start=1.5):
         dx, dy = bx - ax, by - ay
         d = math.hypot(dx, dy)
@@ -503,6 +533,37 @@ class Geo:
                     if (nx_ - x) ** 2 + (ny_ - y) ** 2 <= r2:
                         out.append((nx_, ny_))
         return out
+
+
+def _components(nav, NNX, NNY):
+    """4-connected regions of free nav nodes: (comp array, sizes list)."""
+    comp = array("i", [-1]) * (NNX * NNY)
+    sizes = []
+    for k0 in range(NNX * NNY):
+        if not nav[k0] or comp[k0] >= 0:
+            continue
+        c = len(sizes)
+        comp[k0] = c
+        stack = [k0]
+        n = 0
+        while stack:
+            k = stack.pop()
+            n += 1
+            I, J = k % NNX, k // NNX
+            if I > 0 and nav[k - 1] and comp[k - 1] < 0:
+                comp[k - 1] = c
+                stack.append(k - 1)
+            if I + 1 < NNX and nav[k + 1] and comp[k + 1] < 0:
+                comp[k + 1] = c
+                stack.append(k + 1)
+            if J > 0 and nav[k - NNX] and comp[k - NNX] < 0:
+                comp[k - NNX] = c
+                stack.append(k - NNX)
+            if J + 1 < NNY and nav[k + NNX] and comp[k + NNX] < 0:
+                comp[k + NNX] = c
+                stack.append(k + NNX)
+        sizes.append(n)
+    return comp, sizes
 
 
 def main(argv):

@@ -33,6 +33,14 @@ except Exception:  # pragma: no cover - the bot still plays without the map mode
     geomod = None
 
 
+TRACE = None
+if os.environ.get("MF_TRACE"):
+    try:
+        TRACE = open(os.environ["MF_TRACE"], "w")
+    except Exception:
+        TRACE = None
+
+
 def log(*a):
     try:
         print(*a, file=sys.stderr, flush=True)
@@ -127,6 +135,7 @@ class Brain:
         self.hist = []          # (t, x, y, commanded)
         self.stuck_until = -1.0
         self.stuck_dir = (0.0, 0.0)
+        self.stuck_log = []
         self.cover_goal = None
         self.cover_t = -99.0
         self.home = None
@@ -137,6 +146,14 @@ class Brain:
         self.deadline = 0.0
         self.last_reload_cmd = -99.0
         self.blocked_goal = {}
+        self.climb_req = None
+        self.my_comp = -1
+        self.main_comp = -1
+        if self.geo is not None:
+            try:
+                self.main_comp = self.geo.main_comp()
+            except Exception:
+                self.main_comp = -1
 
     # ----------------------------------------------------------------- helpers
     def time_left(self):
@@ -323,6 +340,13 @@ class Brain:
         energy = float(me.get("energy", 0.0))
         cubes = float(me.get("cubes", 0))
         self.update_memory(obs, me)
+        self.climb_req = None
+        self.my_comp = -1
+        if self.geo is not None:
+            try:
+                self.my_comp = self.geo.comp_at(px, py)
+            except Exception:
+                self.my_comp = -1
         act = {}
         offer = obs.get("offer")
         if offer:
@@ -571,6 +595,14 @@ class Brain:
             del self.hist[:-40]
         self.prev_hp = hp
         act["debug"] = {"label": ("%s hp%d e%d c%d" % (label, hp, energy, cubes))[:80]}
+        if TRACE is not None and int(obs.get("tick", 0)) % 20 == 0:
+            try:
+                TRACE.write("t%.1f pos(%.0f,%.0f,%.0f) hp%.0f e%.0f in_zone=%s zone(%.0f,%.0f r%.0f) next(%.0f,%.0f r%.0f) %s mv=%s w=%s tgt=%s\n" % (
+                    t, px, py, pz, hp, energy, me.get("in_zone"), zx, zy, zr, nx_, ny_, nr, label,
+                    act["move"], kinds, self.target_id))
+                TRACE.flush()
+            except Exception:
+                pass
         return act
 
     # ----------------------------------------------------------------- farming
@@ -664,7 +696,7 @@ class Brain:
         return self.scan_yaw, -0.05
 
     # ----------------------------------------------------------------- movement
-    def nav_to(self, px, py, gx, gy):
+    def nav_to(self, px, py, gx, gy, allow_climb=False):
         """Direction toward goal along a planned path."""
         dx, dy = gx - px, gy - py
         d = hyp(dx, dy)
@@ -677,17 +709,31 @@ class Brain:
             if d < 70.0 and g.seg_free(px, py, gx, gy):
                 self.path = None
                 return dx / d, dy / d
+            cg = g.comp_at(gx, gy)
+            if allow_climb and self.my_comp >= 0 and cg >= 0 and cg != self.my_comp:
+                # walled off from the goal (stadium bowl, courtyard): jet over, straight at it
+                self.path = None
+                self.climb_req = (dx / d, dy / d)
+                return dx / d, dy / d
             need = (self.path is None or self.path_goal is None or
                     hyp(self.path_goal[0] - gx, self.path_goal[1] - gy) > 6.0 or
                     self.t - self.path_t > 4.0 or not self.path)
-            if need and self.time_left() > 0.012:
-                p = g.astar(px, py, gx, gy, max_nodes=2500, deadline=self.deadline - 0.004)
-                self.path = p
-                self.path_goal = (gx, gy)
-                self.path_t = self.t
+            skipped = False
+            if need:
+                if self.time_left() > 0.012:
+                    p = g.astar(px, py, gx, gy, max_nodes=2500, deadline=self.deadline - 0.004)
+                    self.path = p
+                    self.path_goal = (gx, gy)
+                    self.path_t = self.t
+                else:
+                    skipped = True
             path = self.path
             if not path:
-                return dx / d, dy / d
+                # no route: straight if clear; if the search was only skipped for time, wait one
+                # decision instead of walking into a wall; if it failed, slide along walls anyway
+                if g.seg_free(px, py, gx, gy) or not skipped:
+                    return dx / d, dy / d
+                return 0.0, 0.0
             while len(path) > 1 and hyp(path[0][0] - px, path[0][1] - py) < 3.0:
                 path.pop(0)
             tgt = path[0]
@@ -713,7 +759,7 @@ class Brain:
         if g is None or not threats:
             return None
         cands = g.cover_near(px, py, 55.0)
-        cands = [c for c in cands if hyp(c[0] - cx, c[1] - cy) < cr - 6.0]
+        cands = [c for c in cands if hyp(c[0] - cx, c[1] - cy) < cr - 6.0 and self.reachable(c[0], c[1])]
         cands.sort(key=lambda c: (c[0] - px) ** 2 + (c[1] - py) ** 2)
         ths = sorted(threats, key=lambda e: hyp(e["pos"][0] - px, e["pos"][1] - py))[:3]
         for c in cands[:40]:
@@ -757,14 +803,14 @@ class Brain:
                 gx, gy = lx + (px - lx) * min(1.0, f), ly + (py - ly) * min(1.0, f)
             else:
                 gx, gy = lx, ly
-            zone_push = (gx, gy)
+            zone_push = self.snap_goal(gx, gy, lx, ly, lr)
 
         hp_low = hpf < P["retreat_hp"]
         fight = target is not None and (target["los"] or t - self.attacked_by.get(target["id"], -99) < 3.0
                                          or target["dist"] < 120)
 
         if zone_push is not None:
-            mv = self.nav_to(px, py, zone_push[0], zone_push[1])
+            mv = self.nav_to(px, py, zone_push[0], zone_push[1], allow_climb=True)
             boost = (not in_zone) and energy > 20
             label = "zone"
             if target is not None and target["los"]:
@@ -822,14 +868,40 @@ class Brain:
         if mv is None:
             mv = (0.0, 0.0)
 
-        # avoid walking into walls during strafes: if blocked, slide perpendicular
+        # ---- jet over a wall to reach a walled-off goal (stadium bowl, courtyards)
+        climbing = False
+        if self.climb_req is not None and not (dodge is not None and dodge[2]):
+            cx_, cy_ = self.climb_req
+            mv = (cx_, cy_)
+            climbing = True
+            g = self.geo
+            ahead_blocked = g is not None and not g.seg_free(px, py, px + cx_ * 7.0, py + cy_ * 7.0, skip_start=0.5)
+            if grounded:
+                if ahead_blocked:
+                    if energy >= 85.0:
+                        jump = True
+                        boost = True
+                    else:
+                        mv = (cx_ * 0.2, cy_ * 0.2)  # lean on the wall while energy refills
+                        boost = False
+                label += " climb"
+            else:
+                boost = energy > 1.0
+                label += " jet"
+
         # ---- stuck detection
-        if self.stuck_until > t:
+        if climbing:
+            self.hist.clear()
+        elif self.stuck_until > t:
             mv = self.stuck_dir
             if grounded:
                 jump = True
             boost = energy > 10
             label += " unstick"
+            if len(self.stuck_log) >= 3:
+                # stuck again and again: jet straight up and out (long burn)
+                boost = energy > 1
+                label += "+"
         else:
             if len(self.hist) >= 15:
                 t0 = self.hist[-15][0]
@@ -837,7 +909,8 @@ class Brain:
                 if t - t0 < 2.0 and all(h[3] > 0.6 and h[4] < 1.5 for h in self.hist[-15:]):
                     a = math.atan2(mv[1], mv[0]) + (PI / 2 if self.rng.random() < 0.5 else -PI / 2)
                     self.stuck_dir = (math.cos(a), math.sin(a))
-                    self.stuck_until = t + 0.9
+                    self.stuck_log = [x for x in self.stuck_log if t - x < 12.0] + [t]
+                    self.stuck_until = t + (0.9 if len(self.stuck_log) < 3 else 3.0)
                     self.path = None
                     self.hist.clear()
         if charging:
@@ -908,6 +981,8 @@ class Brain:
         best = None
         cz = pz + 4.5
         for p in obs.get("projectiles") or []:
+            if self.time_left() < 0.008:
+                break  # keep time for the rest of the decision when the sky is full of shells
             pos = p.get("pos")
             vel = p.get("vel")
             if not pos or not vel:
@@ -920,6 +995,8 @@ class Brain:
                 tt = 0.0
                 hit = None
                 while tt < 7.0:
+                    if (int(tt * 20) & 15) == 0 and self.time_left() < 0.008:
+                        break
                     tt += 0.05
                     x += ux * 0.05
                     y += uy * 0.05
@@ -989,7 +1066,7 @@ class Brain:
             if pos[2] - self.ground(pos[0], pos[1]) > 2.5:
                 continue  # roof loot
             d = hyp(pos[0] - px, pos[1] - py)
-            if d > 230 or not ok_spot(pos[0], pos[1]):
+            if d > 230 or not ok_spot(pos[0], pos[1]) or not self.reachable(pos[0], pos[1]):
                 continue
             v = (80.0 if None in kinds else 45.0) + gsh[0] * 6.0
             goals.append((v - d * 0.22, pos[0], pos[1], "loot " + kind))
@@ -997,7 +1074,7 @@ class Brain:
             if pos[2] - self.ground(pos[0], pos[1]) > 2.5:
                 continue
             d = hyp(pos[0] - px, pos[1] - py)
-            if d > 200 or not ok_spot(pos[0], pos[1]):
+            if d > 200 or not ok_spot(pos[0], pos[1]) or not self.reachable(pos[0], pos[1]):
                 continue
             goals.append((70.0 - d * 0.22, pos[0], pos[1], "cube"))
         for did_drop in obs.get("drops") or []:
@@ -1029,14 +1106,15 @@ class Brain:
             if pos[2] - self.ground(pos[0], pos[1]) > 2.5:
                 continue
             d = hyp(pos[0] - px, pos[1] - py)
-            if d > 150 or not ok_spot(pos[0], pos[1]):
+            if d > 150 or not ok_spot(pos[0], pos[1]) or not self.reachable(pos[0], pos[1]):
                 continue
             goals.append((40.0 - d * 0.22, pos[0], pos[1], "crate"))
 
         # home spot inside the next circle
         hk = (round(nx_, 1), round(ny_, 1), round(nr, 1))
         if self.home is None or self.home_key != hk:
-            self.home = self.pick_home(px, py, nx_, ny_, nr)
+            hx0, hy0 = self.pick_home(px, py, nx_, ny_, nr)
+            self.home = self.snap_goal(hx0, hy0, nx_, ny_, nr)
             self.home_key = hk
         hx, hy = self.home
         dh = hyp(hx - px, hy - py)
@@ -1049,12 +1127,38 @@ class Brain:
         d = hyp(gx - px, gy - py)
         if label == "home" and d < 4.0:
             return (0.0, 0.0), False, "hold"
-        mv = self.nav_to(px, py, gx, gy)
+        mv = self.nav_to(px, py, gx, gy, allow_climb=(label == "home"))
         boost = energy > 70 and d > 40 and not threats
         # walk quietly near home
         if label == "home" and d < 25 and not must_go:
             mv = (mv[0] * 0.4, mv[1] * 0.4)
         return mv, boost, label
+
+    def snap_goal(self, x, y, cx, cy, cr):
+        """Move a goal onto walkable ground we can reach (our region, else the main one) inside the
+        circle, so the bot never paths into a walled-off pocket."""
+        g = self.geo
+        if g is None:
+            return (x, y)
+        try:
+            for comp in (self.my_comp, self.main_comp):
+                if comp is None or comp < 0:
+                    continue
+                q = g.nearest_in_comp(x, y, comp, maxr=40)
+                if q is not None and (cr <= 1.0 or hyp(q[0] - cx, q[1] - cy) < max(cr - 3.0, cr * 0.8)):
+                    return q
+        except Exception:
+            log(traceback.format_exc())
+        return (x, y)
+
+    def reachable(self, x, y):
+        g = self.geo
+        if g is None or self.my_comp < 0:
+            return True
+        try:
+            return g.comp_at(x, y) == self.my_comp
+        except Exception:
+            return True
 
     def pick_home(self, px, py, cx, cy, r):
         """A cover node inside the circle, on our side of its centre."""
