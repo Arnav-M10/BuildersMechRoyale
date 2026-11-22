@@ -346,3 +346,4 @@ pb4 5.02 → pb 4 draws mean 5.49: no gain. All practice variants ≈ or < base 
 Top-32 unique repos: Team-Xero (MIT, Rust) public HEAD is Friday's ~3.9 version — current 6.13 code not public; Kanyaraasi repo now private/deleted; the other top teams have no public code.
 g619s5 5.60; g619s6 submitted. ffa-sound set2 (seed 9500) 7.44 (57 m) → avg with set1 ≈7.75 ≈ base; base set2 pending. Practice optimizer round0: cfg8 5.52 vs cfg0 4.88 (48 m).
 g619s6 5.31; g619s7 submitted. Codex now gpt-6.2-sol medium (per-call flag); Sol strategist + builder sessions running.
+Sol STRATEGY.md (dev/STRATEGY_SOL.md) adopted: alternate B (go-619 salts) / G (giddy3 salts) ~3:2; challengers need +0.5 paired sim gain then ≤4 real draws with stop rules; new bet = practice-only smarter bullet dodge (Sol implementing → variants/p_dodge); FFA: tune cfg18 leads 8.25 (48 m) — paired test before any final change.
