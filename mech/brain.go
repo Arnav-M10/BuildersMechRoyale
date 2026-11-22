@@ -160,6 +160,8 @@ func DefaultParams() Params {
 		Peek: true, LaserFirst: false, CrowdHide: true, Practice: true}
 
 	p.LaserFirst = true
+	p.LaserSeek = 150 // FFA: detour for a laser (squad mode overrides with 240)
+	p.NanoUp = true // FFA: nanites early
 
 	return p
 }
@@ -635,7 +637,7 @@ func (b *Brain) step(o *Obs, act *Action) {
 		b.retreat = true
 		b.coverAt = -1
 	}
-	if b.retreat && !swamped && (hpFrac > b.P.RecoverHP || (now-b.lastThreatAt > 7 && hpFrac > 0.55)) {
+	if b.retreat && !swamped && (hpFrac > b.P.RecoverHP || (now-b.lastThreatAt > 7 && hpFrac > b.recoverFloor())) {
 		b.retreat = false
 	}
 	if b.P.LoseRule {
@@ -1950,6 +1952,7 @@ func (b *Brain) odds(me *Self, t *Track, now float64, opening bool) float64 {
 }
 
 func squadParams(p Params) Params {
+	p.NanoUp = false // keep practice upgrades exactly as before
 	p.Ghost = false
 	p.Peek = false
 	p.LaserFirst = true
@@ -1998,4 +2001,12 @@ func (b *Brain) showsBack(t *Track, x, y float64) bool {
 		arc = 180
 	}
 	return math.Abs(angDiff(t.Aim[0], math.Atan2(y-t.Pos[1], x-t.Pos[0]))) > arc*math.Pi/360+0.1
+}
+
+// recoverFloor: in FFA, heal to ~85% before re-engaging; practice keeps giddy's 55%.
+func (b *Brain) recoverFloor() float64 {
+	if b.pracOn {
+		return 0.55
+	}
+	return 0.85
 }
