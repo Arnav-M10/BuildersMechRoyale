@@ -152,6 +152,7 @@ type Params struct {
 	SpeedUp     bool
 	Backstab    float64
 	LethalK     float64
+	LightFirst  bool
 }
 
 func DefaultParams() Params {
@@ -169,6 +170,8 @@ func NewBrain(h *Hello, w *World) *Brain {
 	if seed == 0 {
 		seed = int64(h.Slot) + 1
 	}
+	seed = seed*1000003 + 46457589 // RNG salt
+
 	return &Brain{
 		W: w, Cfg: h.Config, Slot: h.Slot, rng: rand.New(rand.NewSource(seed)), P: DefaultParams(),
 		tracks: map[int]*Track{}, npcs: map[int]*Track{}, crates: map[int]*known{}, cubes: map[int]*known{},
@@ -1186,6 +1189,9 @@ func (b *Brain) wantPickup(me *Self, kind string) bool {
 		return false
 	}
 	rank := func(k string) int {
+		if b.P.LightFirst && k == "lightning" {
+			return 5
+		}
 		if b.P.LaserFirst && k == "laser" {
 			return 4
 		}
@@ -1973,6 +1979,7 @@ func squadParams(p Params) Params {
 	p.LethalK = 0.7
 	p.HPw = 0.18
 	p.MaxTarget = 200
+	p.LightFirst = true
 
 	return p
 }
