@@ -57,6 +57,12 @@ type Brain struct {
 	coverGoal [2]float64
 	coverOK   bool
 
+	coverMissUntil   float64
+	retreatUntil     float64
+	retreatDir       [2]float64
+	retreatBearingAt float64
+	retreatBearing   float64
+
 	lastHurt    float64
 	hurtBearing float64
 	hurtSeenBy  bool
@@ -334,6 +340,7 @@ func (b *Brain) observe(o *Obs) {
 	}
 	if on := b.base.Practice && !b.notPractice && now > 20; on != b.pracOn {
 		b.pracOn = on
+		b.coverMissUntil, b.retreatUntil, b.retreatBearingAt = 0, 0, 0
 		b.P = b.base
 		if on {
 			b.P = squadParams(b.base)
@@ -346,6 +353,14 @@ func (b *Brain) observe(o *Obs) {
 			b.P.LaserFirst, b.P.LaserSeek, b.P.LootRadius = true, 240, 150
 		} else if b.pracOn {
 			b.P = squadParams(b.base)
+		}
+	}
+
+	if b.pracOn {
+		for _, e := range o.Events {
+			if e.Type == "damaged" && e.Bearing != nil {
+				b.retreatBearingAt, b.retreatBearing = now, *e.Bearing
+			}
 		}
 	}
 
@@ -700,6 +715,19 @@ func (b *Brain) step(o *Obs, act *Action) {
 		mx, my = b.travel(me, zgx, zgy)
 		boost = (!me.InZone || now+tNeed >= deadline) && me.Energy > 5
 		mode = "zone"
+	case b.pracOn && b.retreat && !finishing && !late:
+		if now >= b.coverMissUntil && b.coverMove(o, seen, &mx, &my) {
+			b.retreatUntil = 0
+			boost = me.Energy > 10 && (mx != 0 || my != 0)
+			mode = "cover"
+		} else {
+			if now >= b.coverMissUntil {
+				b.coverMissUntil = now + 2
+			}
+			boost = me.Energy > math.Max(10, st.BoostDrain)
+			mx, my = b.movingRetreat(o, boost)
+			mode = "flee"
+		}
 	case b.retreat && !finishing && !late:
 		if b.coverMove(o, seen, &mx, &my) {
 			boost = me.Energy > 10 && (mx != 0 || my != 0)
@@ -844,6 +872,9 @@ func (b *Brain) step(o *Obs, act *Action) {
 		}
 	}
 
+	if b.pracOn && mode != "flee" {
+		b.retreatUntil = 0
+	}
 	if escJump {
 		act.Jump = true
 	}
@@ -1470,6 +1501,119 @@ func (b *Brain) fightMove(o *Obs, tg *Track, seen []*Track, wantLos float64) (fl
 		b.strafeUntil = b.now + 0.5
 	}
 	return mx, my
+}
+
+func (b *Brain) movingRetreat(o *Obs, boost bool) (float64, float64) {
+	const headings = 12
+	me, w, z := &o.Self, b.W, &o.Zone
+	x, y := me.Pos[0], me.Pos[1]
+	speed := me.Stats.WalkSpeed
+	if boost {
+		speed = math.Max(speed, me.Stats.BoostSpeed)
+	}
+	reach := math.Max(2*w.NS, speed)
+	cur := b.curZone(z)
+	margin := me.Stats.Radius
+	zoneGap := func(px, py float64) float64 {
+		return hyp(px-cur.X, py-cur.Y) - cur.R + margin
+	}
+	startGap := zoneGap(x, y)
+	walkable := func(px, py float64) bool {
+		return px >= w.BX0+margin && px <= w.BX1-margin &&
+			py >= w.BY0+margin && py <= w.BY1-margin &&
+			w.Free(px, py) && w.LineWalkable(x, y, px, py)
+	}
+	if remaining := b.retreatUntil - b.now; remaining > 0 && b.retreatDir != [2]float64{} {
+		d := math.Max(w.NS, reach*remaining)
+		px, py := x+b.retreatDir[0]*d, y+b.retreatDir[1]*d
+		if walkable(px, py) && zoneGap(px, py) <= math.Max(0, startGap) {
+			return b.retreatDir[0], b.retreatDir[1]
+		}
+	}
+
+	var threats []*Track
+	for _, t := range b.tracks {
+		if b.now-t.Seen < 3 {
+			threats = append(threats, t)
+		}
+	}
+	sort.Slice(threats, func(i, j int) bool {
+		a, c := threats[i], threats[j]
+		da, dc := hyp(a.Pos[0]-x, a.Pos[1]-y), hyp(c.Pos[0]-x, c.Pos[1]-y)
+		if da == dc {
+			return a.ID < c.ID
+		}
+		return da < dc
+	})
+	var projected [3][2]float64
+	n := min(len(threats), len(projected))
+	for i, t := range threats[:n] {
+		dt := clamp(b.now-t.Seen+1, 1, 2)
+		projected[i] = [2]float64{t.Pos[0] + dt*t.Vel[0], t.Pos[1] + dt*t.Vel[1]}
+	}
+	if n == 0 && b.retreatBearingAt > 0 && b.now-b.retreatBearingAt < 3 {
+		projected[0] = [2]float64{x + 80*math.Cos(b.retreatBearing), y + 80*math.Sin(b.retreatBearing)}
+		n = 1
+	}
+
+	bestScore := math.Inf(-1)
+	var bestDir [2]float64
+	bestTime := 1.0
+	consider := func(px, py float64) {
+		d := hyp(px-x, py-y)
+		if d < 0.8 || !walkable(px, py) {
+			return
+		}
+		nearest, total := math.Inf(1), 0.0
+		for _, t := range projected[:n] {
+			gain := hyp(px-t[0], py-t[1]) - hyp(x-t[0], y-t[1])
+			nearest = math.Min(nearest, hyp(px-t[0], py-t[1]))
+			total += gain
+		}
+		score := 0.35*d - b.zonePenalty(z, px, py) - 20*math.Max(0, zoneGap(px, py))
+		if n > 0 {
+			score += nearest + 0.45*total/float64(n)
+		}
+		mid := w.Cell((x+px)*0.5, (y+py)*0.5)
+		score += 0.3 * float64(min(w.Clearance[mid], w.Clearance[w.Cell(px, py)]))
+		if score > bestScore {
+			bestScore = score
+			bestDir = [2]float64{(px - x) / d, (py - y) / d}
+			bestTime = clamp(d/math.Max(speed, 1), 0.25, 1)
+		}
+	}
+	for i := 0; i < headings; i++ {
+		a := 2 * math.Pi * float64(i) / headings
+		dx, dy := math.Cos(a), math.Sin(a)
+		for _, fraction := range [...]float64{1, 0.5, 0.25} {
+			d := reach * fraction
+			consider(x+dx*d, y+dy*d)
+		}
+	}
+	if bestDir == [2]float64{} {
+		// In tight terrain, try a bounded path search for a reachable first leg.
+		for i := 0; i < headings; i++ {
+			a := 2 * math.Pi * float64(i) / headings
+			gx, gy := x+reach*math.Cos(a), y+reach*math.Sin(a)
+			if !w.Free(gx, gy) {
+				continue
+			}
+			path, reached := w.Path(x, y, gx, gy, 96)
+			if !reached {
+				continue
+			}
+			for _, c := range path {
+				px, py := w.CellPos(int(c))
+				if !walkable(px, py) {
+					break
+				}
+				consider(px, py)
+			}
+		}
+	}
+	b.retreatDir = bestDir
+	b.retreatUntil = b.now + bestTime
+	return bestDir[0], bestDir[1]
 }
 
 func (b *Brain) coverMove(o *Obs, seen []*Track, mx, my *float64) bool {
