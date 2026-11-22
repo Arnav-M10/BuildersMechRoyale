@@ -79,6 +79,8 @@ type Brain struct {
 	lastThreatAt float64
 	lastAim      [2]float64
 	laserHeld    float64
+	laserLaneAt  float64
+	laserLaneAim [2]float64
 	Mode         string
 	Panics       int
 
@@ -898,6 +900,12 @@ func (b *Brain) step(o *Obs, act *Action) {
 	shootable := false
 	isMech := false
 	defend := false
+	laserLane := false
+	laserCanWait := b.pracOn && me.InZone
+	switch mode {
+	case "zone", "zone-walk", "escape", "unstuck", "dodge", "cover", "cornered", "flee":
+		laserCanWait = false
+	}
 	if target == nil && b.npcHurt > 0 && now-b.npcHurt < 3 {
 
 		var worst *Track
@@ -1006,6 +1014,13 @@ func (b *Brain) step(o *Obs, act *Action) {
 				if !isMech || dist > w.Stats.Range*0.97 {
 					break
 				}
+				if b.pracOn {
+					laserLane = hp >= st.MinPitch && hp <= st.MaxPitch && b.W.Clear(muzzle, dp)
+					if !laserLane {
+						break
+					}
+					b.laserLaneAt, b.laserLaneAim = now, [2]float64{hy, hp}
+				}
 				full := w.Stats.Charge
 				if b.P.Lethal && w.Charge >= w.Stats.MinCharge && w.Charge < full-0.051 {
 					dmg := w.Stats.Damage * (w.Stats.MinFrac + (1-w.Stats.MinFrac)*w.Charge/full) *
@@ -1064,11 +1079,27 @@ func (b *Brain) step(o *Obs, act *Action) {
 
 	}
 
-	if target == nil && foe != nil {
+	if !b.pracOn && target == nil && foe != nil {
 
 		for i, w := range me.Weapons {
 			if w != nil && i < 2 && w.Kind == "laser" && w.Cooldown <= 0.05 && foe.Dist < w.Stats.Range && w.Charge < w.Stats.Charge+w.Stats.HoldS-0.35 {
 				act.Fire[i] = true
+			}
+		}
+	}
+
+	// A missing target clears fire in the base loop, which releases a charged laser.
+	// Carry it through a brief loss of the line, then release to regain mobility.
+	if laserCanWait && !laserLane && b.laserLaneAt > 0 && now-b.laserLaneAt <= 0.25 {
+		decisionS := 0.1
+		if b.Cfg.Match.TickHz > 0 && b.Cfg.Match.DecideEvery > 0 {
+			decisionS = float64(b.Cfg.Match.DecideEvery) / b.Cfg.Match.TickHz
+		}
+		if i, w := hasWeapon(me.Weapons, "laser"); w != nil && i < len(act.Fire) && w.Charge > 0 &&
+			w.Charge+decisionS+0.01 < w.Stats.Charge+w.Stats.HoldS {
+			act.Fire[i] = true
+			if !haveAim || isMech {
+				aim, haveAim = b.laserLaneAim, true
 			}
 		}
 	}
