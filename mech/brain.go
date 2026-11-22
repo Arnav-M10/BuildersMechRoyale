@@ -57,6 +57,16 @@ type Brain struct {
 	coverGoal [2]float64
 	coverOK   bool
 
+	prePracticeRetreat       bool
+	practicePrevHP          float64
+	practicePrevInZone      bool
+	practiceDamageAt        float64
+	practiceCombatAt        float64
+	practicePriorCombatAt   float64
+	practiceDamageBearingAt float64
+	practiceDamageBearing   float64
+	practiceAttackers       map[int]float64
+
 	lastHurt    float64
 	hurtBearing float64
 	hurtSeenBy  bool
@@ -334,6 +344,16 @@ func (b *Brain) observe(o *Obs) {
 	}
 	if on := b.base.Practice && !b.notPractice && now > 20; on != b.pracOn {
 		b.pracOn = on
+		if on {
+			b.prePracticeRetreat = b.retreat
+		} else {
+			b.retreat = b.prePracticeRetreat
+		}
+		b.practicePrevInZone = false
+		b.practiceDamageAt = math.Inf(-1)
+		b.practiceCombatAt, b.practicePriorCombatAt = math.Inf(-1), math.Inf(-1)
+		b.practiceDamageBearingAt = math.Inf(-1)
+		b.practiceAttackers = nil
 		b.P = b.base
 		if on {
 			b.P = squadParams(b.base)
@@ -349,12 +369,53 @@ func (b *Brain) observe(o *Obs) {
 		}
 	}
 
+	if b.pracOn {
+		b.observePracticeDamage(o)
+	}
+
 	z := &o.Zone
 	if b.holdStart != z.ShrinkStart {
 		b.holdStart = z.ShrinkStart
 		b.hold = circle{z.Center[0], z.Center[1], z.Radius}
 	} else if now <= z.ShrinkStart {
 		b.hold = circle{z.Center[0], z.Center[1], z.Radius}
+	}
+}
+
+func (b *Brain) observePracticeDamage(o *Obs) {
+	me, now := &o.Self, o.T
+	hpFell := b.practicePrevInZone && me.InZone && me.HP < b.practicePrevHP
+	reported, combat := false, false
+	b.practicePrevHP, b.practicePrevInZone = me.HP, me.InZone
+	for _, e := range o.Events {
+		if e.Type != "damaged" {
+			continue
+		}
+		reported = true
+		if e.Weapon == "zone" || (e.By != nil && *e.By == me.ID) {
+			continue
+		}
+		combat = true
+		if e.Bearing != nil {
+			b.practiceDamageBearingAt, b.practiceDamageBearing = now, *e.Bearing
+		}
+		if e.By != nil {
+			if b.practiceAttackers == nil {
+				b.practiceAttackers = make(map[int]float64)
+			}
+			b.practiceAttackers[*e.By] = now
+		}
+	}
+	for id, at := range b.practiceAttackers {
+		if now-at >= 3 {
+			delete(b.practiceAttackers, id)
+		}
+	}
+	if reported || hpFell {
+		b.practiceDamageAt = now
+	}
+	if (combat || (hpFell && !reported)) && now > b.practiceCombatAt {
+		b.practicePriorCombatAt, b.practiceCombatAt = b.practiceCombatAt, now
 	}
 }
 
@@ -631,13 +692,16 @@ func (b *Brain) step(o *Obs, act *Action) {
 	if now < b.oddsFleeUntil && !finishing {
 		swamped = true
 	}
-	if !b.retreat && ((hpFrac < b.P.RetreatHP && now-b.lastThreatAt < 2) || swamped) {
-		b.retreat = true
-		b.coverAt = -1
+	if !b.pracOn {
+		if !b.retreat && ((hpFrac < b.P.RetreatHP && now-b.lastThreatAt < 2) || swamped) {
+			b.retreat = true
+			b.coverAt = -1
+		}
+		if b.retreat && !swamped && (hpFrac > b.P.RecoverHP || (now-b.lastThreatAt > 7 && hpFrac > 0.55)) {
+			b.retreat = false
+		}
 	}
-	if b.retreat && !swamped && (hpFrac > b.P.RecoverHP || (now-b.lastThreatAt > 7 && hpFrac > 0.55)) {
-		b.retreat = false
-	}
+	losing := false
 	if b.P.LoseRule {
 		near := 0
 		for _, t := range seen {
@@ -645,20 +709,36 @@ func (b *Brain) step(o *Obs, act *Action) {
 				near++
 			}
 		}
-		losing := (near >= 2 && hpFrac < 0.55) || (near >= 3 && hpFrac < 0.8)
+		losing = (near >= 2 && hpFrac < 0.55) || (near >= 3 && hpFrac < 0.8)
 		if target != nil {
 			tf := target.HP / math.Max(1, target.MaxHP)
 			if hpFrac < 0.35 && tf > hpFrac+0.1 {
 				losing = true
 			}
-			if tf < 0.25 && hpFrac > 0.2 && near <= 2 {
+			if !b.pracOn && tf < 0.25 && hpFrac > 0.2 && near <= 2 {
 				losing = false
 			}
 		}
-		if losing {
-			b.loseAt = now
+		if !b.pracOn {
+			if losing {
+				b.loseAt = now
+			}
+			b.retreat = now-b.loseAt < 1.5 && b.loseAt > 0
 		}
-		b.retreat = now-b.loseAt < 1.5 && b.loseAt > 0
+	}
+	if b.pracOn {
+		sustained := now-b.practiceCombatAt < 1.5 && now-b.practicePriorCombatAt < 3
+		threatened := now-b.lastThreatAt < 2 || now-b.practiceCombatAt < 2
+		trigger := losing || swamped || len(b.practiceAttackers) >= 2 ||
+			(hpFrac < 0.55 && sustained) || (hpFrac < b.P.RetreatHP && threatened)
+		if trigger {
+			if !b.retreat {
+				b.coverAt = -1
+			}
+			b.retreat = true
+		} else if now-b.practiceDamageAt >= 4 && hpFrac >= 0.75 {
+			b.retreat = false
+		}
 	}
 
 	exposed := false
@@ -700,6 +780,14 @@ func (b *Brain) step(o *Obs, act *Action) {
 		mx, my = b.travel(me, zgx, zgy)
 		boost = (!me.InZone || now+tNeed >= deadline) && me.Energy > 5
 		mode = "zone"
+	case b.pracOn && b.retreat:
+		if !late && b.coverMove(o, seen, &mx, &my) {
+			mode = "cover"
+		} else {
+			mx, my = b.practiceWithdraw(o, seen, zgx, zgy)
+			mode = "flee"
+		}
+		boost = me.Energy > 10 && (mx != 0 || my != 0)
 	case b.retreat && !finishing && !late:
 		if b.coverMove(o, seen, &mx, &my) {
 			boost = me.Energy > 10 && (mx != 0 || my != 0)
@@ -1009,6 +1097,9 @@ func (b *Brain) step(o *Obs, act *Action) {
 					if b.P.LethalK > 0 {
 						lk = b.P.LethalK
 					}
+					if b.pracOn && b.retreat {
+						lk = 1
+					}
 					if b.P.Backstab > 0 && b.showsBack(target, x, y) {
 						dmg *= b.rearMult()
 					}
@@ -1126,6 +1217,44 @@ func (b *Brain) step(o *Obs, act *Action) {
 	act.Move = [2]float64{mx, my}
 	act.Boost = boost && (mx != 0 || my != 0)
 	b.Mode = mode
+}
+
+func (b *Brain) practiceWithdraw(o *Obs, seen []*Track, zgx, zgy float64) (float64, float64) {
+	me := &o.Self
+	x, y := me.Pos[0], me.Pos[1]
+	away := b.practiceDamageBearing + math.Pi
+	nearest := math.Inf(1)
+	for _, t := range seen {
+		if d := hyp(t.Pos[0]-x, t.Pos[1]-y); d < nearest {
+			nearest = d
+			away = math.Atan2(y-t.Pos[1], x-t.Pos[0])
+		}
+	}
+	if math.IsInf(nearest, 1) && b.now-b.practiceDamageBearingAt >= 3 {
+		return b.travel(me, zgx, zgy)
+	}
+	cur := b.curZone(&o.Zone)
+	d := math.Max(4, me.Stats.WalkSpeed)
+	best := math.Inf(1)
+	var mx, my float64
+	for _, turn := range [...]float64{0, math.Pi / 3, -math.Pi / 3} {
+		dx, dy := math.Cos(away+turn), math.Sin(away+turn)
+		px, py := x+d*dx, y+d*dy
+		if hyp(px-cur.X, py-cur.Y) > cur.R-me.Stats.Radius ||
+			px < b.W.BX0+me.Stats.Radius || px > b.W.BX1-me.Stats.Radius ||
+			py < b.W.BY0+me.Stats.Radius || py > b.W.BY1-me.Stats.Radius ||
+			!b.W.Free(px, py) || !b.W.LineWalkable(x, y, px, py) {
+			continue
+		}
+		cost := d*(1-math.Cos(turn)) + b.zonePenalty(&o.Zone, px, py)
+		if cost < best {
+			best, mx, my = cost, dx, dy
+		}
+	}
+	if math.IsInf(best, 1) {
+		return b.travel(me, zgx, zgy)
+	}
+	return mx, my
 }
 
 func (b *Brain) escape(me *Self, mx, my *float64, boost, jump *bool) bool {
