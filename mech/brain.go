@@ -512,7 +512,7 @@ func (b *Brain) step(o *Obs, act *Action) {
 		act.Pick = &p
 	}
 
-	_, gun := hasWeapon(me.Weapons, "gun")
+	gunSlot, gun := hasWeapon(me.Weapons, "gun")
 	_, light := hasWeapon(me.Weapons, "lightning")
 	_, laser := hasWeapon(me.Weapons, "laser")
 	late := z.NextRadius <= 70 || o.Alive <= 3
@@ -901,6 +901,9 @@ func (b *Brain) step(o *Obs, act *Action) {
 	isMech := false
 	defend := false
 	laserLane := false
+	var gunMuzzle, gunPoint Vec3
+	var gunShotAt, gunVerticalMargin float64
+	gunHasLane := false
 	laserCanWait := b.pracOn && me.InZone
 	switch mode {
 	case "zone", "zone-walk", "escape", "unstuck", "dodge", "cover", "cornered", "flee":
@@ -979,6 +982,27 @@ func (b *Brain) step(o *Obs, act *Action) {
 		if gun != nil {
 			gy, gp = b.lead(muzzle, tp, tv, gun.Stats.Speed, grounded)
 			gunOK = dist <= gun.Stats.Range*0.96
+			if b.pracOn && isMech && gun.Ammo > 0 && gun.Reload <= 0 {
+				if shotAt, ready := b.practiceFireTime(gun.Cooldown); ready {
+					gunShotAt = shotAt
+					gunMuzzle = Vec3{x + me.Vel[0]*shotAt, y + me.Vel[1]*shotAt, zf + st.MuzzleHeight + me.Vel[2]*shotAt}
+					for _, height := range [...]float64{0.5, 0.85} {
+						point := target.Pos
+						point[2] += th * height
+						point = practiceGunIntercept(gunMuzzle, point, tv, gun.Stats.Speed, shotAt, grounded)
+						dx, dy, dz := point[0]-gunMuzzle[0], point[1]-gunMuzzle[1], point[2]-gunMuzzle[2]
+						d := hyp(dx, dy)
+						pitch := math.Atan2(dz, d)
+						if math.Hypot(d, dz) <= gun.Stats.Range && pitch >= st.MinPitch && pitch <= st.MaxPitch &&
+							b.W.Clear(gunMuzzle, point) {
+							gy, gp = math.Atan2(dy, dx), pitch
+							gunPoint, gunHasLane = point, true
+							gunVerticalMargin = th * math.Min(0.4, 1-height)
+							break
+						}
+					}
+				}
+			}
 		}
 
 		dp := Vec3{tp[0] + tv[0]*(lat+0.05), tp[1] + tv[1]*(lat+0.05), tp[2]}
@@ -1002,7 +1026,7 @@ func (b *Brain) step(o *Obs, act *Action) {
 			}
 			switch w.Kind {
 			case "gun":
-				if gunOK && w.Ammo > 0 && w.Reload <= 0 && slew(gy, gp) {
+				if !(b.pracOn && isMech) && gunOK && w.Ammo > 0 && w.Reload <= 0 && slew(gy, gp) {
 					act.Fire[i] = true
 				}
 			case "lightning":
@@ -1131,6 +1155,23 @@ func (b *Brain) step(o *Obs, act *Action) {
 	aim[1] = clamp(aim[1], st.MinPitch, st.MaxPitch)
 	act.Aim = &aim
 
+	// Check the actual launch ray after any secondary weapon has changed aim.
+	if b.pracOn && gunHasLane && gunSlot >= 0 && gunSlot < len(act.Fire) {
+		actual := practiceAimAt(me, aim, gunShotAt)
+		dx, dy, dz := gunPoint[0]-gunMuzzle[0], gunPoint[1]-gunMuzzle[1], gunPoint[2]-gunMuzzle[2]
+		// Project the ray to the cross-section through the predicted target.
+		offset := angDiff(actual[0], math.Atan2(dy, dx))
+		d := hyp(dx, dy)
+		if math.Abs(offset) < math.Pi/2 && d*math.Abs(math.Tan(offset)) < tr*0.75 {
+			along := d / math.Cos(offset)
+			rayZ := along * math.Tan(actual[1])
+			if math.Abs(rayZ-dz) < gunVerticalMargin && math.Hypot(along, rayZ) <= gun.Stats.Range {
+				end := Vec3{gunMuzzle[0] + along*math.Cos(actual[0]), gunMuzzle[1] + along*math.Sin(actual[0]), gunMuzzle[2] + rayZ}
+				act.Fire[gunSlot] = b.W.Clear(gunMuzzle, end)
+			}
+		}
+	}
+
 	if gun != nil && gun.Reload <= 0 && gun.Ammo < gun.Stats.Mag {
 		if target == nil && farm == nil && farmPos == nil && (gun.Ammo <= gun.Stats.Mag*0.6 || now-b.lastThreatAt > 3) {
 			act.Reload = true
@@ -1248,6 +1289,49 @@ func (b *Brain) wantPickup(me *Self, kind string) bool {
 		cur = rank(me.Weapons[1].Kind)
 	}
 	return rank(kind) > cur
+}
+
+// practiceFireTime returns the first physics tick that can consume a trigger
+// in this action window. The engine decrements cooldown before firing.
+func (b *Brain) practiceFireTime(cooldown float64) (float64, bool) {
+	tickS := 0.05
+	if b.Cfg.Match.TickHz > 0 {
+		tickS = 1 / b.Cfg.Match.TickHz
+	}
+	ticks := b.Cfg.Match.DecideEvery
+	if ticks <= 0 {
+		ticks = 2
+	}
+	first := math.Max(1, math.Ceil((cooldown-1e-8)/tickS))
+	return first * tickS, first <= float64(ticks)
+}
+
+func practiceAimAt(me *Self, command [2]float64, seconds float64) [2]float64 {
+	st := &me.Stats
+	return [2]float64{
+		me.Aim[0] + clamp(angDiff(command[0], me.Aim[0]), -st.TurnRate*seconds, st.TurnRate*seconds),
+		clamp(me.Aim[1]+clamp(command[1]-me.Aim[1], -st.PitchRate*seconds, st.PitchRate*seconds), st.MinPitch, st.MaxPitch),
+	}
+}
+
+// practiceGunIntercept uses the time until launch plus the projectile's flight
+// time. Projectiles do not inherit the shooter's velocity.
+func practiceGunIntercept(muzzle, point, vel Vec3, speed, shotAt float64, grounded bool) Vec3 {
+	if speed <= 0 {
+		speed = 252
+	}
+	flight := 0.0
+	var impact Vec3
+	for k := 0; k < 4; k++ {
+		t := shotAt + flight
+		impact = Vec3{point[0] + vel[0]*t, point[1] + vel[1]*t, point[2]}
+		if !grounded {
+			impact[2] += vel[2] * t * 0.5
+		}
+		dist := math.Hypot(hyp(impact[0]-muzzle[0], impact[1]-muzzle[1]), impact[2]-muzzle[2])
+		flight = math.Max(0, dist-3) / speed
+	}
+	return impact
 }
 
 func (b *Brain) lead(muzzle, tp, tv Vec3, speed float64, grounded bool) (float64, float64) {
