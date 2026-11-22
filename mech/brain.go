@@ -2039,7 +2039,7 @@ func squadParams(p Params) Params {
 	p.FarmHP = 0.5
 
 	p.LaserSeek = 240
-	p.LaserUp = true
+	p.LaserUp = false
 	p.Lethal = true
 	p.Finish = 20
 	p.Stick = 200
