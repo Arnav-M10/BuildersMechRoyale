@@ -996,13 +996,20 @@ func (b *Brain) step(o *Obs, act *Action) {
 			ep := math.Max(0, math.Abs(wantP-me.Aim[1])-st.PitchRate*0.05)
 			return ey < tolY && ep < tolP
 		}
+		gunSlot := -1
 		for i, w := range me.Weapons {
 			if w == nil || i > 1 {
 				continue
 			}
 			switch w.Kind {
 			case "gun":
+				gunSlot = i
 				if gunOK && w.Ammo > 0 && w.Reload <= 0 && slew(gy, gp) {
+					act.Fire[i] = true
+				}
+				if b.pracOn && gunOK && slew(gy, gp) && w.Reload > 0 &&
+					b.Cfg.Match.TickHz > 0 && b.Cfg.Match.DecideEvery > 1 &&
+					w.Reload <= float64(b.Cfg.Match.DecideEvery-1)/b.Cfg.Match.TickHz+1e-6 {
 					act.Fire[i] = true
 				}
 			case "lightning":
@@ -1073,6 +1080,13 @@ func (b *Brain) step(o *Obs, act *Action) {
 						act.Fire[i] = true
 					}
 				}
+			}
+		}
+		if b.pracOn && gunSlot >= 0 && act.Fire[gunSlot] {
+			// Both weapon slots share the same torso. A simultaneous shot is
+			// useful only if the final torso command still supports the lead.
+			if math.Abs(angDiff(aim[0], gy)) > tolY || math.Abs(aim[1]-gp) > tolP {
+				act.Fire[gunSlot] = false
 			}
 		}
 	} else {
