@@ -169,6 +169,8 @@ func NewBrain(h *Hello, w *World) *Brain {
 	if seed == 0 {
 		seed = int64(h.Slot) + 1
 	}
+	seed = seed*1000003 + 46457589 // RNG salt
+
 	return &Brain{
 		W: w, Cfg: h.Config, Slot: h.Slot, rng: rand.New(rand.NewSource(seed)), P: DefaultParams(),
 		tracks: map[int]*Track{}, npcs: map[int]*Track{}, crates: map[int]*known{}, cubes: map[int]*known{},
@@ -609,7 +611,11 @@ func (b *Brain) step(o *Obs, act *Action) {
 	}
 	danger := false
 	crowd := 0
+	pressure := 0
 	for _, t := range seen {
+		if (t.Seen == now && t.Engage) || now-t.HitMe < 3 {
+			pressure++
+		}
 		if t.Engage || now-t.HitMe < 4 {
 			danger = true
 		}
@@ -774,7 +780,7 @@ func (b *Brain) step(o *Obs, act *Action) {
 		if b.P.FightBoost > 0 && me.Energy > b.P.FightBoost && (laser == nil || laser.Charge <= 0) && (light == nil || me.Energy > 60) {
 			boost = true
 		}
-		if b.P.FightLoot > 0 {
+		if b.P.FightLoot > 0 && !(b.pracOn && pressure >= 2) {
 			r := b.P.FightLoot
 			if hpFrac <= 0.5 {
 				r *= 0.57
