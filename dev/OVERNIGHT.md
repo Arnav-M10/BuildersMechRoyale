@@ -328,3 +328,4 @@ pk1 5.48; pd1 submitted. FFA: ffa-ls 7.10 (61 m), ffa-nano 7.03 (60 m) → no ga
 Top teams (tigerbyte 6.44, ImagineLosing 6.42, IT_Professionals 6.38) have no public code; other teams' notes only describe their FFA showdown play. Tanish-Dhankhar/hope claims ~6.38 (no license; ideas only: lightning > laser, mortar over cover, loot inside next zone away from hunters, disengage via buildings).
 New practice variant pl (lightning-first, practice only) pl1-4 (204b304,5faf6e0,f447bb2,22485ef). pd1 5.69. pl1 submitted. check.py FAIL earlier was host load (go-619 also slow at load 14; both PASS on rerun).
 pl1 (lightning-first) 4.73 → dropped. pd2 submitted. Codex A (practice fixes) + Codex B (FFA sound avoidance) dispatched 8:32 PM.
+Codex A: practice A = UseDrops (= our pd), B = no cube runs under ≥2 attackers → pb1-4 (b56d8fc, ec67fc2, 0920927, ece3f3c). Codex B: ffa-sound (FFA sound-aware avoidance) built; vs-clones test running.
