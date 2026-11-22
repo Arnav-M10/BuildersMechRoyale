@@ -838,9 +838,14 @@ func (b *Brain) step(o *Obs, act *Action) {
 				}
 				mode = "home"
 			}
-		} else if b.P.Explore && !late && me.Cubes < b.cubeCap() && hpFrac > 0.7 && !danger {
-			mx, my = b.exploreMove(o)
-			mode = "explore"
+		} else if !late && !danger {
+			if b.pracOn && laser == nil && me.InZone && hpFrac > 0.5 && now-b.lastHurt > 2.5 {
+				mx, my = b.exploreMove(o)
+				mode = "loot:weapon-search"
+			} else if b.P.Explore && me.Cubes < b.cubeCap() && hpFrac > 0.7 {
+				mx, my = b.exploreMove(o)
+				mode = "explore"
+			}
 		}
 	}
 
@@ -1102,6 +1107,7 @@ func (b *Brain) step(o *Obs, act *Action) {
 	if len(me.Weapons) > 1 && me.Weapons[1] != nil {
 		slot1 = me.Weapons[1].Kind
 	}
+	var fallbackMortar *int
 	for i := range o.Pickups {
 		p := &o.Pickups[i]
 		if hyp(p.Pos[0]-x, p.Pos[1]-y) > b.Cfg.Loot.PickupRadius-0.3 || math.Abs(p.Pos[2]-zf) > 3.6 {
@@ -1111,6 +1117,12 @@ func (b *Brain) step(o *Obs, act *Action) {
 			continue
 		}
 		id := p.ID
+		if b.pracOn && b.P.NoMortar && slot1 == "" && p.Kind == "mortar" {
+			if fallbackMortar == nil {
+				fallbackMortar = &id
+			}
+			continue
+		}
 		act.Take = &id
 		if slot1 != "" && len(me.Weapons) > 0 && me.Weapons[0] != nil {
 			if slot1 == "laser" && me.Weapons[1].Charge > 0 {
@@ -1121,6 +1133,9 @@ func (b *Brain) step(o *Obs, act *Action) {
 			act.Drop = &one
 		}
 		break
+	}
+	if act.Take == nil && fallbackMortar != nil {
+		act.Take = fallbackMortar
 	}
 
 	act.Move = [2]float64{mx, my}
@@ -1183,7 +1198,10 @@ func (b *Brain) wantPickup(me *Self, kind string) bool {
 		return false
 	}
 	if kind == "mortar" && b.P.NoMortar {
-		return false
+		emptySecondary := len(me.Weapons) < 2 || me.Weapons[1] == nil
+		if !b.pracOn || !emptySecondary {
+			return false
+		}
 	}
 	rank := func(k string) int {
 		if b.P.LaserFirst && k == "laser" {
