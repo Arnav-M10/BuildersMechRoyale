@@ -847,8 +847,11 @@ func (b *Brain) step(o *Obs, act *Action) {
 	if escJump {
 		act.Jump = true
 	}
-	if b.P.Dodge && mode != "unstuck" && mode != "escape" {
+	canDodge := b.P.Dodge && mode != "unstuck" && mode != "escape"
+	laserDodge := false
+	if canDodge {
 		if dx, dy, lz := b.dodge(o); dx != 0 || dy != 0 {
+			laserDodge = lz
 			mx, my = mx*0.4+dx*0.9, my*0.4+dy*0.9
 			if l := hyp(mx, my); l > 1 {
 				mx, my = mx/l, my/l
@@ -880,6 +883,11 @@ func (b *Brain) step(o *Obs, act *Action) {
 		}
 	} else {
 		b.stuckSince = -1
+	}
+
+	if b.pracOn && canDodge && !laserDodge && !act.Jump && me.InZone &&
+		len(o.Projectiles) > 0 && mode != "dodge" && mode != "zone" && mode != "zone-walk" {
+		mx, my = b.practiceBulletDodge(o, mx, my, boost)
 	}
 
 	muzzle := Vec3{x + me.Vel[0]*lat, y + me.Vel[1]*lat, zf + st.MuzzleHeight}
@@ -1849,31 +1857,33 @@ func (b *Brain) dodge(o *Obs) (dx, dy float64, laser bool) {
 	me := &o.Self
 	cx, cy, cz := me.Pos[0], me.Pos[1], me.Pos[2]+me.Stats.Height*0.56
 	reach := me.Stats.Radius + 1.1
-	for i := range o.Projectiles {
-		p := &o.Projectiles[i]
-		if p.Kind == "mortar" {
-			continue
-		}
-		v2 := p.Vel[0]*p.Vel[0] + p.Vel[1]*p.Vel[1] + p.Vel[2]*p.Vel[2]
-		if v2 < 1 {
-			continue
-		}
-		tc := ((cx-p.Pos[0])*p.Vel[0] + (cy-p.Pos[1])*p.Vel[1] + (cz-p.Pos[2])*p.Vel[2]) / v2
-		if tc <= 0 || tc > 0.7 {
-			continue
-		}
-		mxx, myy := p.Pos[0]+p.Vel[0]*tc-cx, p.Pos[1]+p.Vel[1]*tc-cy
-		if hyp(mxx, myy) < reach {
-			vh := hyp(p.Vel[0], p.Vel[1])
-			if vh < 1 {
+	if !b.pracOn {
+		for i := range o.Projectiles {
+			p := &o.Projectiles[i]
+			if p.Kind == "mortar" {
 				continue
 			}
-			px, py := -p.Vel[1]/vh, p.Vel[0]/vh
-			if px*mxx+py*myy > 0 {
-				px, py = -px, -py
+			v2 := p.Vel[0]*p.Vel[0] + p.Vel[1]*p.Vel[1] + p.Vel[2]*p.Vel[2]
+			if v2 < 1 {
+				continue
 			}
-			dx += px
-			dy += py
+			tc := ((cx-p.Pos[0])*p.Vel[0] + (cy-p.Pos[1])*p.Vel[1] + (cz-p.Pos[2])*p.Vel[2]) / v2
+			if tc <= 0 || tc > 0.7 {
+				continue
+			}
+			mxx, myy := p.Pos[0]+p.Vel[0]*tc-cx, p.Pos[1]+p.Vel[1]*tc-cy
+			if hyp(mxx, myy) < reach {
+				vh := hyp(p.Vel[0], p.Vel[1])
+				if vh < 1 {
+					continue
+				}
+				px, py := -p.Vel[1]/vh, p.Vel[0]/vh
+				if px*mxx+py*myy > 0 {
+					px, py = -px, -py
+				}
+				dx += px
+				dy += py
+			}
 		}
 	}
 	for i := range o.Mechs {
@@ -1893,6 +1903,268 @@ func (b *Brain) dodge(o *Obs) (dx, dy float64, laser bool) {
 		return dx / l, dy / l, laser
 	}
 	return 0, 0, false
+}
+
+const (
+	bulletDodgeStep  = 0.05
+	bulletDodgeSteps = 6
+)
+
+type bulletDodgePath [bulletDodgeSteps + 1]Vec3
+
+func (b *Brain) practiceBulletDodge(o *Obs, mx, my float64, boost bool) (float64, float64) {
+	me := &o.Self
+	st := &me.Stats
+	const horizon = bulletDodgeSteps * bulletDodgeStep
+	charging := false
+	for _, weapon := range me.Weapons {
+		if weapon != nil && weapon.Kind == "laser" && weapon.Charge > 0 {
+			charging = true
+			break
+		}
+	}
+
+	// Keep the four shots that enter the reachable area soonest, including
+	// shots that miss the intended path but could hit an adjustment.
+	speed, verticalAccel := st.WalkSpeed, st.Gravity
+	if boost {
+		speed = math.Max(speed, st.BoostSpeed)
+		verticalAccel = math.Max(verticalAccel, st.JetAccel)
+	}
+	if charging {
+		speed *= st.ChargeMoveMult
+	}
+	travel := horizon * math.Max(hyp(me.Vel[0], me.Vel[1]), speed)
+	zPad := horizon * (math.Abs(me.Vel[2]) + horizon*verticalAccel)
+	if me.Grounded {
+		zPad += st.StepUp + travel*math.Tan(st.MaxSlopeDeg*math.Pi/180)
+	}
+	type threat struct {
+		shot  *Proj
+		entry float64
+	}
+	var nearest [4]threat
+	n := 0
+	for i := range o.Projectiles {
+		p := &o.Projectiles[i]
+		if p.Kind == "mortar" {
+			continue
+		}
+		from := Vec3{p.Pos[0] - me.Pos[0], p.Pos[1] - me.Pos[1], p.Pos[2] - me.Pos[2]}
+		if p.Vel[0]*p.Vel[0]+p.Vel[1]*p.Vel[1]+p.Vel[2]*p.Vel[2] < 1 {
+			continue
+		}
+		delta := Vec3{p.Vel[0] * horizon, p.Vel[1] * horizon, p.Vel[2] * horizon}
+		t, ok := bulletCylinderEntry(from, delta, travel+st.Radius, -zPad, st.Height+zPad)
+		if !ok || (n == len(nearest) && t >= nearest[n-1].entry) {
+			continue
+		}
+		if n < len(nearest) {
+			n++
+		}
+		j := n - 1
+		for j > 0 && t < nearest[j-1].entry {
+			nearest[j] = nearest[j-1]
+			j--
+		}
+		nearest[j] = threat{shot: p, entry: t}
+	}
+	if n == 0 {
+		return mx, my
+	}
+
+	intended, _ := b.predictBulletDodgePath(me, mx, my, boost, charging)
+	var first *Proj
+	firstTime := math.Inf(1)
+	for _, t := range nearest[:n] {
+		if at := b.bulletDodgeHit(t.shot, &intended, st); at < firstTime {
+			first, firstTime = t.shot, at
+		}
+	}
+	if first == nil {
+		return mx, my
+	}
+
+	// Try both sides of the earliest incoming shot. Prefer the smallest
+	// change to the movement command and use terrain clearance to break ties.
+	sx, sy := 1.0, 0.0
+	if v := hyp(first.Vel[0], first.Vel[1]); v > 1e-6 {
+		sx, sy = -first.Vel[1]/v, first.Vel[0]/v
+	}
+	zone := b.curZone(&o.Zone)
+	bestX, bestY := mx, my
+	bestChange, bestClearance := math.Inf(1), -1.0
+	for _, amount := range [...]float64{0.3, 0.6, 1, 1.5, 2} {
+		for _, side := range [...]float64{-1, 1} {
+			dx, dy := mx+sx*side*amount, my+sy*side*amount
+			if l := hyp(dx, dy); l > 1 {
+				dx, dy = dx/l, dy/l
+			}
+			change := hyp(dx-mx, dy-my)
+			if change < 1e-6 || change > bestChange+1e-6 {
+				continue
+			}
+
+			path, clear := b.predictBulletDodgePath(me, dx, dy, boost, charging)
+			if !clear {
+				continue
+			}
+			for _, pos := range path[1:] {
+				if zone.R > 0 && hyp(pos[0]-zone.X, pos[1]-zone.Y) > zone.R {
+					clear = false
+					break
+				}
+			}
+			if !clear {
+				continue
+			}
+			for _, t := range nearest[:n] {
+				if !math.IsInf(b.bulletDodgeHit(t.shot, &path, st), 1) {
+					clear = false
+					break
+				}
+			}
+			if !clear {
+				continue
+			}
+
+			end := path[bulletDodgeSteps]
+			clearance := 0.0
+			if b.W.Free(end[0], end[1]) {
+				clearance = float64(b.W.Clearance[b.W.Cell(end[0], end[1])])
+			}
+			if change < bestChange-1e-6 || clearance > bestClearance {
+				bestX, bestY = dx, dy
+				bestChange, bestClearance = change, clearance
+			}
+		}
+	}
+	return bestX, bestY
+}
+
+func (b *Brain) predictBulletDodgePath(me *Self, mx, my float64, boost, charging bool) (bulletDodgePath, bool) {
+	var path bulletDodgePath
+	path[0] = me.Pos
+	st, w := &me.Stats, b.W
+	maxSlope := math.Tan(st.MaxSlopeDeg * math.Pi / 180)
+	vel, grounded, energy := me.Vel, me.Grounded, me.Energy
+	clear := true
+	moving := mx != 0 || my != 0
+	if l := hyp(mx, my); l > 1 {
+		mx, my = mx/l, my/l
+	}
+
+	for i := 1; i < len(path); i++ {
+		speed, accel := st.WalkSpeed, st.AirAccel
+		jetting := false
+		if grounded {
+			accel = st.GroundAccel
+			if drain := st.BoostDrain * bulletDodgeStep; boost && moving && energy >= drain {
+				speed = st.BoostSpeed
+				energy -= drain
+			}
+		} else if drain := st.JetDrain * bulletDodgeStep; boost && moving && energy >= drain {
+			jetting = true
+			energy -= drain
+		}
+		if charging {
+			speed *= st.ChargeMoveMult
+		}
+		dvx, dvy := mx*speed-vel[0], my*speed-vel[1]
+		limit := accel * bulletDodgeStep
+		if d := hyp(dvx, dvy); d > limit {
+			dvx, dvy = dvx*limit/d, dvy*limit/d
+		}
+		vel[0] += dvx
+		vel[1] += dvy
+
+		pos := path[i-1]
+		wasGrounded := grounded
+		next := Vec3{pos[0] + vel[0]*bulletDodgeStep, pos[1] + vel[1]*bulletDodgeStep, pos[2]}
+		floor := w.SupportAt(next[0], next[1], pos[2], st.Radius)
+		if grounded && floor >= pos[2]-st.StepUp {
+			next[2], vel[2] = floor, 0
+		} else {
+			vel[2] -= st.Gravity * bulletDodgeStep
+			if jetting {
+				vel[2] = math.Min(st.MaxRiseSpeed, vel[2]+st.JetAccel*bulletDodgeStep)
+			}
+			next[2] += vel[2] * bulletDodgeStep
+			grounded = vel[2] <= 0 && next[2] <= floor
+			if grounded {
+				next[2], vel[2] = floor, 0
+			}
+		}
+
+		// Approximate a solid contact as a stop for this segment. Reject
+		// adjustments with contact, while still checking the intended path.
+		x, y, z := next[0], next[1], next[2]
+		r := st.Radius
+		rise, run := z-pos[2], hyp(x-pos[0], y-pos[1])
+		steep := wasGrounded && rise > 0 && run > 0.1 && rise > maxSlope*run && floor == w.GroundAt(x, y)
+		if (grounded && rise > st.StepUp) || steep ||
+			x-r < w.BX0 || x+r > w.BX1 || y-r < w.BY0 || y+r > w.BY1 ||
+			w.wallWithin(x, y, z, r, st.Height) {
+			clear = false
+			next, vel, grounded = pos, Vec3{}, wasGrounded
+		}
+		path[i] = next
+	}
+	return path, clear
+}
+
+func (b *Brain) bulletDodgeHit(shot *Proj, path *bulletDodgePath, st *MechStats) float64 {
+	start := shot.Pos
+	step := Vec3{shot.Vel[0] * bulletDodgeStep, shot.Vel[1] * bulletDodgeStep, shot.Vel[2] * bulletDodgeStep}
+	for i := 0; i < bulletDodgeSteps; i++ {
+		a, end := path[i], path[i+1]
+		from := Vec3{start[0] - a[0], start[1] - a[1], start[2] - a[2]}
+		delta := Vec3{step[0] - (end[0] - a[0]), step[1] - (end[1] - a[1]), step[2] - (end[2] - a[2])}
+		if f, ok := bulletCylinderEntry(from, delta, st.Radius, 0, st.Height); ok {
+			contact := Vec3{start[0] + f*step[0], start[1] + f*step[1], start[2] + f*step[2]}
+			if b.W.Clear(shot.Pos, contact) {
+				return (float64(i) + f) * bulletDodgeStep
+			}
+			// The straight shot would already have struck cover.
+			break
+		}
+		start[0] += step[0]
+		start[1] += step[1]
+		start[2] += step[2]
+	}
+	return math.Inf(1)
+}
+
+// Intersect a relative segment with the cylinder's height slab and radial disk.
+// The intervals must overlap at the same time, including between path samples.
+func bulletCylinderEntry(from, delta Vec3, radius, bottom, top float64) (float64, bool) {
+	lo, hi := 0.0, 1.0
+	if math.Abs(delta[2]) < 1e-9 {
+		if from[2] < bottom || from[2] > top {
+			return 0, false
+		}
+	} else {
+		a, b := (bottom-from[2])/delta[2], (top-from[2])/delta[2]
+		lo, hi = math.Max(lo, math.Min(a, b)), math.Min(hi, math.Max(a, b))
+		if lo > hi {
+			return 0, false
+		}
+	}
+
+	r2 := radius * radius
+	v2 := delta[0]*delta[0] + delta[1]*delta[1]
+	if v2 < 1e-12 {
+		return lo, from[0]*from[0]+from[1]*from[1] <= r2
+	}
+	center := -(from[0]*delta[0] + from[1]*delta[1]) / v2
+	x, y := from[0]+center*delta[0], from[1]+center*delta[1]
+	span := r2 - (x*x + y*y)
+	if span < 0 {
+		return 0, false
+	}
+	half := math.Sqrt(span / v2)
+	lo, hi = math.Max(lo, center-half), math.Min(hi, center+half)
+	return lo, lo <= hi
 }
 
 func (b *Brain) reach(me *Self) float64 {
