@@ -331,3 +331,5 @@ pl1 (lightning-first) 4.73 → dropped. pd2 submitted. Codex A (practice fixes) 
 Codex A: practice A = UseDrops (= our pd), B = no cube runs under ≥2 attackers → pb1-4 (b56d8fc, ec67fc2, 0920927, ece3f3c). Codex B: ffa-sound (FFA sound-aware avoidance) built; vs-clones test running.
 pd2 5.52 (pd: 5.69, 5.52). Board 9:18 PM: WE ARE 32nd (last qualifying), 33rd Antalos 6.15. pb1 submitted.
 pb1 5.54. pk2 submitted.
+
+## OUT (9:22 PM): we're 34th at 6.17; 32nd 'who dey' 6.19 → need ≥ 6.20 (ties go to earlier). pk2 5.60. pd3 submitted.
