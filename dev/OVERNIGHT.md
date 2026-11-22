@@ -370,3 +370,4 @@ Sol variants built: sa 4d9d7f1 (micro-juke strafe + laser-window, from MarwanMoh
 builders-4: fx_retreat 5.32. Paired clean screen (vs base, same seeds): sb +0.23 (64), fx_retreat +0.09 (55), fx_weapon -0.24 (62), sa -0.53 (64). sb (e12b8df) submitted to real server. Board: 37th, 32nd 5.65.
 **sb REAL 5.68 (builders-4) → PICKED (BB-B0F5CE2B, e12b8df)** — first real gain under builders-4 (> 5.63 old pick, > 32nd 5.65). sb2 (4515819), sb3 (f7973d9) built; sim screen running; real draws next.
 Screen: sc -0.86, sd -0.35 (dropped); sb2 early -1.56 (18 m). sb2 queued on real. Board 1:23 AM: 36th at 5.68; 32nd kyoto-max 5.70. Built sb salt variants sbs1-6 (scratchpad/sb_salts.txt) for fresh builders-4 draws around sb's mean.
+sb2 real 5.61. sb3 submitted.
