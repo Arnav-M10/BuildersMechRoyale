@@ -276,7 +276,14 @@ type Offer struct {
 	Choices []OfferChoice `json:"choices"`
 }
 
+type Beam struct {
+	By int `json:"by"`
+	Kind string `json:"kind"`
+	Age float64 `json:"age"`
+}
+
 type Obs struct {
+	Beams []Beam `json:"beams"`
 	Type        string     `json:"type"`
 	Tick        int        `json:"tick"`
 	T           float64    `json:"t"`

@@ -9,6 +9,7 @@ import (
 const lat = 0.075
 
 type Track struct {
+	LaserFiredAt float64
 	MechSeen
 	Seen    float64
 	HitMe   float64
@@ -262,6 +263,13 @@ func (b *Brain) observe(o *Obs) {
 		}
 		if t.Dist > 1 {
 			t.Closing = -((m.Vel[0]-me.Vel[0])*dx + (m.Vel[1]-me.Vel[1])*dy) / t.Dist
+		}
+	}
+	for _, beam := range o.Beams {
+		if beam.Kind == "laser" && beam.Age >= 0 && beam.Age < 0.3 {
+			if track := b.tracks[beam.By]; track != nil {
+				track.LaserFiredAt = now-beam.Age
+			}
 		}
 	}
 	for id, t := range b.tracks {
@@ -1436,6 +1444,12 @@ func (b *Brain) fightMove(o *Obs, tg *Track, seen []*Track, wantLos float64) (fl
 	me := &o.Self
 	x, y := me.Pos[0], me.Pos[1]
 	rp := b.prefRange(me, tg)
+	if b.pracOn && tg.LaserFiredAt > 0 && b.now-tg.LaserFiredAt < 1.35 &&
+		me.HP > 0.6*me.MaxHP && !tg.Charging {
+		// A just-fired laser has a fixed recovery period. Use that interval
+		// to improve the gun's firing range before the next charged shot.
+		rp = math.Min(rp, 68)
+	}
 	bx, by := tg.Pos[0]-x, tg.Pos[1]-y
 	bd := hyp(bx, by) + 1e-9
 	ux, uy := bx/bd, by/bd
