@@ -342,3 +342,5 @@ pb2 5.69 (pb: 5.54, 5.69). pb3 submitted.
 FFA: ffa-sound (sound-aware avoidance) 8.06 over 64 m vs base 7.61/7.78 → BEST FFA variant; confirming on independent seed set 9500 (ffa-sound vs go-619).
 FFA optimizer round-0 leaders (16 m): cfg7 7.88, cfg18 7.19, cfg6 6.88 vs baseline 5.06 — common: Lethal on, GunRange ~100-110, Finish ~18-30, LaserSeek 100-150.
 pb3 5.71 (pb 5.54/5.69/5.71 → 5.65). Board 10:30 PM: we're 36th; 32nd Buildmaxx 6.19. pb4 submitted.
+pb4 5.02 → pb 4 draws mean 5.49: no gain. All practice variants ≈ or < base (pd 5.62, pk 5.54(2), pb 5.49, ph 4.25, pl 4.73). Back to base salts (g619s5 submitted).
+Top-32 unique repos: Team-Xero (MIT, Rust) public HEAD is Friday's ~3.9 version — current 6.13 code not public; Kanyaraasi repo now private/deleted; the other top teams have no public code.
