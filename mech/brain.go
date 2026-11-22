@@ -1176,6 +1176,19 @@ func (b *Brain) step(o *Obs, act *Action) {
 		act.Take = fallbackMortar
 	}
 
+	// A charging hostile laser deals cookoff damage against a carried mortar.
+	// Shed it only with a clear warning aimed toward our present position.
+	if b.pracOn && slot1 == "mortar" && act.Take == nil {
+		for _, enemy := range seen {
+			if enemy.Seen == now && enemy.Charging && enemy.LOS && enemy.Dist < 180 &&
+				math.Abs(angDiff(enemy.Aim[0], math.Atan2(y-enemy.Pos[1], x-enemy.Pos[0]))) < 0.12 {
+				slot := 1
+				act.Drop = &slot
+				act.Fire[1] = false
+				break
+			}
+		}
+	}
 	act.Move = [2]float64{mx, my}
 	act.Boost = boost && (mx != 0 || my != 0)
 	b.Mode = mode
