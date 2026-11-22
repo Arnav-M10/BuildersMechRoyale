@@ -96,6 +96,12 @@ type Brain struct {
 	otherDead          int
 	stickID            int
 	stickAt, loseAt    float64
+
+	perch                           perchPlan
+	perchPhase                      perchPhase
+	perchAt, perchNext, perchUseful float64
+	perchExitXY                     [2]float64
+	perchHiding                     bool
 }
 
 type Params struct {
@@ -687,7 +693,13 @@ func (b *Brain) step(o *Obs, act *Action) {
 	zoneShould := now+tNeed+14 >= deadline
 
 	escJump := false
+	roofMode := ""
+	if b.pracOn {
+		roofMode = b.perchMove(o, seen, target, zoneMust, &mx, &my, &boost, &escJump)
+	}
 	switch {
+	case roofMode != "":
+		mode = roofMode
 	case b.escape(me, &mx, &my, &boost, &escJump):
 		mode = "escape"
 	case now < b.unstuckUntil:
@@ -847,7 +859,7 @@ func (b *Brain) step(o *Obs, act *Action) {
 	if escJump {
 		act.Jump = true
 	}
-	if b.P.Dodge && mode != "unstuck" && mode != "escape" {
+	if b.P.Dodge && roofMode == "" && mode != "unstuck" && mode != "escape" {
 		if dx, dy, lz := b.dodge(o); dx != 0 || dy != 0 {
 			mx, my = mx*0.4+dx*0.9, my*0.4+dy*0.9
 			if l := hyp(mx, my); l > 1 {
@@ -865,7 +877,7 @@ func (b *Brain) step(o *Obs, act *Action) {
 		boost = true
 	}
 
-	if mode == "escape" {
+	if mode == "escape" || roofMode != "" {
 		b.stuckSince = -1
 	} else if (mx != 0 || my != 0) && hyp(me.Vel[0], me.Vel[1]) < 1.2 && me.Grounded {
 		if b.stuckSince < 0 {
@@ -1123,8 +1135,18 @@ func (b *Brain) step(o *Obs, act *Action) {
 		break
 	}
 
+	if roofMode == "roof:hide" || (roofMode == "roof:peek" && target == nil) {
+		act.Fire = [2]bool{}
+		if gun != nil && gun.Reload <= 0 && gun.Ammo < gun.Stats.Mag*0.75 {
+			act.Reload = true
+		}
+	} else if roofMode == "roof:climb" || roofMode == "roof:exit" {
+		if i, w := hasWeapon(me.Weapons, "laser"); w != nil && i < len(act.Fire) {
+			act.Fire[i] = false
+		}
+	}
 	act.Move = [2]float64{mx, my}
-	act.Boost = boost && (mx != 0 || my != 0)
+	act.Boost = boost && (mx != 0 || my != 0 || roofMode == "roof:climb")
 	b.Mode = mode
 }
 
@@ -1998,4 +2020,291 @@ func (b *Brain) showsBack(t *Track, x, y float64) bool {
 		arc = 180
 	}
 	return math.Abs(angDiff(t.Aim[0], math.Atan2(y-t.Pos[1], x-t.Pos[0]))) > arc*math.Pi/360+0.1
+}
+
+type perchPhase int
+
+const (
+	perchIdle perchPhase = iota
+	perchLaunch
+	perchClimb
+	perchLanded
+	perchLeaving
+)
+
+type perchPlan struct {
+	lip, hide, launch [2]float64
+	top               float64
+}
+
+// Only this strategy uses the roof position. Ground navigation intentionally
+// treats high roofs as disconnected.
+func (b *Brain) perchSurface(x, y, top, radius, height float64) bool {
+	w := b.W
+	s, id := w.SurfaceKind(x, y, top+0.15)
+	if id < 0 || math.Abs(s-top) > 0.15 || !w.InBounds(x, y) {
+		return false
+	}
+	p := &w.geo.Prisms[id]
+	if p.Kind == "bridge" {
+		return false
+	}
+	_, _, edge := closestOnEdges(p.Edges, x, y)
+	depth, _, _, _, _ := w.Penetration(x, y, top+0.02, radius, height)
+	return edge >= radius+0.8 && depth < 0.001
+}
+
+func (b *Brain) perchPlan(o *Obs, threats []*Track) (perchPlan, bool) {
+	me, w := &o.Self, b.W
+	x, y, z := me.Pos[0], me.Pos[1], me.Pos[2]
+	st := &me.Stats
+	best := 0.0
+	var plan perchPlan
+	for i := 0; i < 16; i++ {
+		a := float64(i) * math.Pi / 8
+		ux, uy := math.Cos(a), math.Sin(a)
+		for d := 6.0; d <= 24; d += 3 {
+			px, py := x+d*ux, y+d*uy
+			top := w.TopAt(px, py)
+			rise := top - z
+			if rise < 8 || rise > 23 || !b.perchSurface(px, py, top, st.Radius, st.Height) {
+				continue
+			}
+			if st.MaxRiseSpeed <= 0 || me.Energy < st.JetDrain*(rise/st.MaxRiseSpeed+1.8)+20 {
+				break
+			}
+			// Test the straight airborne ingress for taller intervening walls.
+			clear := true
+			for q := 2.0; q < d; q += 2 {
+				tx, ty := x+q*ux, y+q*uy
+				depth, _, _, _, _ := w.Penetration(tx, ty, top+2.2, st.Radius+0.3, st.Height)
+				if depth > 0.001 {
+					clear = false
+					break
+				}
+			}
+			if !clear {
+				break
+			}
+			for _, back := range [...]float64{9, 14, 20, 28, 36} {
+				hx, hy := px+back*ux, py+back*uy
+				if !b.perchSurface(hx, hy, top, st.Radius, st.Height) {
+					continue
+				}
+				walk := true
+				for q := 3.0; q < back; q += 3 {
+					if !b.perchSurface(px+q*ux, py+q*uy, top, st.Radius, st.Height) {
+						walk = false
+						break
+					}
+				}
+				if !walk {
+					continue
+				}
+				if b.zoneDeadline(&o.Zone, hx, hy, 12) < b.now+22 {
+					continue
+				}
+				lip := Vec3{px, py, top + st.MuzzleHeight}
+				hide := Vec3{hx, hy, top + st.Height*0.62}
+				attack, screened, exposed := 0.0, 0.0, 0.0
+				for _, t := range threats {
+					tc := b.center(t)
+					dd := hyp(tc[0]-px, tc[1]-py)
+					pitch := math.Atan2(tc[2]-lip[2], dd)
+					goodShot := dd >= 32 && dd < math.Min(195, b.reach(me)) &&
+						pitch > st.MinPitch+0.04 && b.W.Clear(lip, tc)
+					covers := !w.Clear(b.eye(t), hide) &&
+						!w.Clear(b.eye(t), Vec3{hx, hy, top + st.Height*0.9})
+					if goodShot {
+						attack++
+						if covers {
+							screened++
+						}
+					}
+					if !covers {
+						exposed++
+					}
+				}
+				if attack == 0 || screened == 0 || screened <= exposed {
+					continue
+				}
+				score := 55 + 12*screened - 24*exposed - 0.8*rise - 0.45*d - 0.25*back
+				if score > best {
+					best = score
+					plan = perchPlan{lip: [2]float64{px, py}, hide: [2]float64{hx, hy}, launch: [2]float64{x, y}, top: top}
+				}
+			}
+			// The nearest safe point on this edge gives the best depression angle.
+			break
+		}
+	}
+	return plan, best > 0
+}
+
+func (b *Brain) perchExit(o *Obs, p perchPlan, threats []*Track) [2]float64 {
+	me, w := &o.Self, b.W
+	x, y := me.Pos[0], me.Pos[1]
+	best := math.Inf(-1)
+	goal := p.launch
+	for i := 0; i < 12; i++ {
+		a := float64(i) * math.Pi / 6
+		ux, uy := math.Cos(a), math.Sin(a)
+		for d := 12.0; d <= 48; d += 4 {
+			cx, cy := x+ux*d, y+uy*d
+			if !w.InBounds(cx, cy) || w.TopAt(cx, cy) > p.top+0.5 {
+				break
+			}
+			if !w.Reachable(cx, cy) || w.TopAt(cx, cy) > p.top-4 {
+				continue
+			}
+			s := -d - b.zonePenalty(&o.Zone, cx, cy)
+			for _, t := range threats {
+				s += 0.35 * clamp(hyp(cx-t.Pos[0], cy-t.Pos[1])-hyp(x-t.Pos[0], y-t.Pos[1]), -45, 45)
+			}
+			if s > best {
+				best, goal = s, [2]float64{cx, cy}
+			}
+			break
+		}
+	}
+	return goal
+}
+
+func (b *Brain) perchMove(o *Obs, seen []*Track, target *Track, zoneMust bool, mx, my *float64, boost, jump *bool) string {
+	me := &o.Self
+	x, y, z := me.Pos[0], me.Pos[1], me.Pos[2]
+	st := &me.Stats
+	hp := me.HP / math.Max(1, me.MaxHP)
+	// Keep the three nearest fresh contacts, with deterministic ties.
+	var nearest [3]*Track
+	n := 0
+	for _, t := range seen {
+		if b.now-t.Seen > 0.5 || t.Dist > 200 {
+			continue
+		}
+		i := min(n, len(nearest)-1)
+		if n == len(nearest) && (t.Dist > nearest[i].Dist || t.Dist == nearest[i].Dist && t.ID > nearest[i].ID) {
+			continue
+		}
+		for i > 0 && (t.Dist < nearest[i-1].Dist || t.Dist == nearest[i-1].Dist && t.ID < nearest[i-1].ID) {
+			nearest[i] = nearest[i-1]
+			i--
+		}
+		nearest[i] = t
+		n = min(n+1, len(nearest))
+	}
+	threats := nearest[:n]
+	goTo := func(goal [2]float64, brake float64) {
+		dx, dy := goal[0]-x, goal[1]-y
+		if d := hyp(dx, dy); d > 0.5 {
+			scale := math.Min(1/d, 1/brake)
+			*mx, *my = dx*scale, dy*scale
+		}
+	}
+
+	if b.perchPhase == perchIdle {
+		if zoneMust || b.now < b.perchNext || b.now < b.unstuckUntil || len(b.W.geo.Prisms) == 0 || !me.Grounded || hp < 0.48 ||
+			z-b.W.GroundAt(x, y) > 3 || st.JetAccel <= st.Gravity || me.Energy < me.MaxEnergy*0.78 || target == nil ||
+			target.Dist < 30 || target.Dist > 170 || target.HP < 0.28*target.MaxHP {
+			return ""
+		}
+		_, laser := hasWeapon(me.Weapons, "laser")
+		if (laser != nil && laser.Charge > 0) || (n < 2 && (laser == nil || hp < 0.66)) {
+			return ""
+		}
+		b.perchNext = b.now + 1.5
+		if ceil := b.W.CeilingAbove(x, y, z+st.Height, st.Radius+1); ceil < z+st.Height+30 {
+			return ""
+		}
+		p, ok := b.perchPlan(o, threats)
+		if !ok {
+			return ""
+		}
+		b.perch, b.perchPhase, b.perchAt = p, perchLaunch, b.now
+	}
+
+	p := b.perch
+	switch b.perchPhase {
+	case perchLaunch:
+		if zoneMust || (target != nil && target.Dist < 20) || b.now-b.perchAt > 0.7 ||
+			hyp(x-p.launch[0], y-p.launch[1]) > 3 {
+			b.perchPhase, b.perchNext = perchIdle, b.now+10
+			return ""
+		}
+		if me.Grounded && hyp(me.Vel[0], me.Vel[1]) < 3 {
+			b.perchPhase, b.perchAt = perchClimb, b.now
+			*jump = true
+		}
+		return "roof:climb"
+	case perchClimb:
+		if me.Grounded && math.Abs(z-p.top) < 0.8 && hyp(x-p.lip[0], y-p.lip[1]) < 5 {
+			b.perchPhase, b.perchAt, b.perchUseful = perchLanded, b.now, b.now
+			b.perchHiding = false
+			break
+		}
+		if zoneMust || b.now-b.perchAt > 6.8 || (b.now-b.perchAt > 0.45 && me.Grounded) ||
+			(me.Energy < 4 && z < p.top+1) {
+			b.perchPhase, b.perchNext = perchIdle, b.now+18
+			return ""
+		}
+		d := hyp(x-p.lip[0], y-p.lip[1])
+		if z > p.top+1.7 || (d > 12 && z > p.top-4 && me.Vel[2] > 4) {
+			goTo(p.lip, 4)
+		}
+		down := math.Min(0, me.Vel[2])
+		net := math.Max(1, st.JetAccel-st.Gravity)
+		if !me.Grounded && (d > 2.2 || z < p.top+0.5) {
+			*boost = z-down*down/(2*net) < p.top+4.4 && me.Energy > 3
+		}
+		return "roof:climb"
+	case perchLeaving:
+		if (me.Grounded && z < p.top-3) || b.now-b.perchAt > 5 {
+			b.perchPhase, b.perchNext = perchIdle, b.now+18
+			return ""
+		}
+		goTo(b.perchExitXY, 1.5)
+		return "roof:exit"
+	}
+
+	// Leave promptly when the circle demands it or the lip stops seeing ground
+	// contacts. Upper-tier bots can take the roof, so a close peer also ends it.
+	peer := false
+	opportunity := false
+	lip := Vec3{p.lip[0], p.lip[1], p.top + st.MuzzleHeight}
+	for _, t := range threats {
+		tc := b.center(t)
+		d := hyp(tc[0]-lip[0], tc[1]-lip[1])
+		if d < 44 && t.Pos[2] > p.top-5 {
+			peer = true
+		}
+		if d > 25 && d < math.Min(200, b.reach(me)) && math.Atan2(tc[2]-lip[2], d) > st.MinPitch+0.04 && b.W.Clear(lip, tc) {
+			opportunity = true
+		}
+	}
+	if opportunity {
+		b.perchUseful = b.now
+	}
+	if zoneMust || peer || b.now-b.perchAt > 17 || b.now-b.perchUseful > 4 ||
+		(me.Grounded && z < p.top-3) {
+		b.perchPhase, b.perchAt = perchLeaving, b.now
+		b.perchExitXY = b.perchExit(o, p, threats)
+		goTo(b.perchExitXY, 1.5)
+		return "roof:exit"
+	}
+	_, gun := hasWeapon(me.Weapons, "gun")
+	_, laser := hasWeapon(me.Weapons, "laser")
+	gunDown := gun == nil || gun.Ammo == 0 || gun.Reload > 0.25
+	laserDown := laser == nil || laser.Cooldown > 0.55
+	if hp < 0.55 && b.now-b.lastHurt < 2.5 {
+		b.perchHiding = true
+	}
+	if hp >= 0.74 || b.now-b.lastHurt > math.Max(7.5, st.RegenDelay+2.5) {
+		b.perchHiding = false
+	}
+	if b.perchHiding || (gunDown && laserDown && hyp(x-p.hide[0], y-p.hide[1]) < 18) {
+		goTo(p.hide, 3.0)
+		return "roof:hide"
+	}
+	goTo(p.lip, 3.0)
+	return "roof:peek"
 }
