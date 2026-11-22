@@ -313,3 +313,4 @@ mh-anwar's docs/knowledge/topteams.md: 'Top 16 Showdown' — the 16 best practic
 waiprotein (6.19) fork adds FFA-detection (BeamFFA, FFAMin, PracAt) and endgame hold-out ideas.
 g619s3 5.44 (619 family: 6.08, 5.38, 5.75, 5.44 → mean 5.66). go-aim `eda89bc` (own FireGate/LeadDamp/AimGate on go-619; check PASS) submitted for real practice + FFA-vs-clones test running. Codex session #2 analyzing all 244 bots → scratchpad/ALLBOTS_REPORT.md.
 go-aim real draw 5.60; FFA go-aim 7.82 (22 m, vs base 7.61). gg3s15 submitted.
+gg3s15 5.52; FFA go-aim 7.41 (59 m) ≈ base → aim fixes no gain. g619s4 submitted.
