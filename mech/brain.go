@@ -983,13 +983,13 @@ func (b *Brain) step(o *Obs, act *Action) {
 			gy, gp = b.lead(muzzle, tp, tv, gun.Stats.Speed, grounded)
 			gunOK = dist <= gun.Stats.Range*0.96
 			if b.pracOn && isMech && gun.Ammo > 0 && gun.Reload <= 0 {
-				if shotAt, ready := b.practiceFireTime(gun.Cooldown); ready {
+				if shotAt, tickS, ready := b.practiceFireTime(gun.Cooldown); ready {
 					gunShotAt = shotAt
 					gunMuzzle = Vec3{x + me.Vel[0]*shotAt, y + me.Vel[1]*shotAt, zf + st.MuzzleHeight + me.Vel[2]*shotAt}
 					for _, height := range [...]float64{0.5, 0.85} {
 						point := target.Pos
 						point[2] += th * height
-						point = practiceGunIntercept(gunMuzzle, point, tv, gun.Stats.Speed, shotAt, grounded)
+						point = practiceGunIntercept(gunMuzzle, point, tv, gun.Stats.Speed, shotAt, tickS, grounded)
 						dx, dy, dz := point[0]-gunMuzzle[0], point[1]-gunMuzzle[1], point[2]-gunMuzzle[2]
 						d := hyp(dx, dy)
 						pitch := math.Atan2(dz, d)
@@ -1293,7 +1293,7 @@ func (b *Brain) wantPickup(me *Self, kind string) bool {
 
 // practiceFireTime returns the first physics tick that can consume a trigger
 // in this action window. The engine decrements cooldown before firing.
-func (b *Brain) practiceFireTime(cooldown float64) (float64, bool) {
+func (b *Brain) practiceFireTime(cooldown float64) (float64, float64, bool) {
 	tickS := 0.05
 	if b.Cfg.Match.TickHz > 0 {
 		tickS = 1 / b.Cfg.Match.TickHz
@@ -1303,7 +1303,7 @@ func (b *Brain) practiceFireTime(cooldown float64) (float64, bool) {
 		ticks = 2
 	}
 	first := math.Max(1, math.Ceil((cooldown-1e-8)/tickS))
-	return first * tickS, first <= float64(ticks)
+	return first * tickS, tickS, first <= float64(ticks)
 }
 
 func practiceAimAt(me *Self, command [2]float64, seconds float64) [2]float64 {
@@ -1314,16 +1314,16 @@ func practiceAimAt(me *Self, command [2]float64, seconds float64) [2]float64 {
 	}
 }
 
-// practiceGunIntercept uses the time until launch plus the projectile's flight
-// time. Projectiles do not inherit the shooter's velocity.
-func practiceGunIntercept(muzzle, point, vel Vec3, speed, shotAt float64, grounded bool) Vec3 {
+// practiceGunIntercept uses the time until launch plus the projectile's flight.
+// Projectiles advance in the launch tick, so credit half that integration step.
+func practiceGunIntercept(muzzle, point, vel Vec3, speed, shotAt, tickS float64, grounded bool) Vec3 {
 	if speed <= 0 {
 		speed = 252
 	}
 	flight := 0.0
 	var impact Vec3
 	for k := 0; k < 4; k++ {
-		t := shotAt + flight
+		t := shotAt + math.Max(0, flight-tickS*0.5)
 		impact = Vec3{point[0] + vel[0]*t, point[1] + vel[1]*t, point[2]}
 		if !grounded {
 			impact[2] += vel[2] * t * 0.5
