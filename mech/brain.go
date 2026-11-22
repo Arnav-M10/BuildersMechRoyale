@@ -169,6 +169,8 @@ func NewBrain(h *Hello, w *World) *Brain {
 	if seed == 0 {
 		seed = int64(h.Slot) + 1
 	}
+	seed = seed*1000003 + 15485863 // RNG salt
+
 	return &Brain{
 		W: w, Cfg: h.Config, Slot: h.Slot, rng: rand.New(rand.NewSource(seed)), P: DefaultParams(),
 		tracks: map[int]*Track{}, npcs: map[int]*Track{}, crates: map[int]*known{}, cubes: map[int]*known{},
@@ -1974,6 +1976,9 @@ func squadParams(p Params) Params {
 	p.HPw = 0.18
 	p.MaxTarget = 200
 
+	p.Stick = 300
+	p.LowBonus = 300
+	p.Finish = 30
 	return p
 }
 
