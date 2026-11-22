@@ -1,11 +1,11 @@
-FROM golang:1.22.5-bookworm AS build
+FROM golang:1.26.1-bookworm@sha256:ab3d6955bbc813a0f3fdf220c1d817dd89c0b3f283777db8ece4a32fe7858edd AS build
 WORKDIR /src
 COPY go.mod ./
 COPY mech ./mech
-COPY cmd ./cmd
-RUN CGO_ENABLED=0 go build -trimpath -o /out/bot ./cmd/bot
+COPY cmd/bot ./cmd/bot
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /mechbot ./cmd/bot
 
-FROM debian:bookworm-slim
-COPY --from=build /out/bot /bot
+FROM scratch
+COPY --from=build /mechbot /mechbot
 USER 65534
-ENTRYPOINT ["/bot"]
+ENTRYPOINT ["/mechbot"]
