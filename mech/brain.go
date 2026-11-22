@@ -16,6 +16,10 @@ type Track struct {
 	LOS     bool
 	Closing float64
 	Engage  bool
+	prevHorizVel [2]float64
+	prevVelAt float64
+	prevVelValid bool
+	reversals []float64
 }
 
 type known struct {
@@ -78,6 +82,7 @@ type Brain struct {
 	unstuckDir   [2]float64
 	lastThreatAt float64
 	lastAim      [2]float64
+	lastAimValid bool
 	laserHeld    float64
 	Mode         string
 	Panics       int
@@ -152,12 +157,16 @@ type Params struct {
 	SpeedUp     bool
 	Backstab    float64
 	LethalK     float64
+	FireGate    bool
+	LeadDamp    bool
+	AimGate     bool
 }
 
 func DefaultParams() Params {
 	p := Params{RetreatHP: 0.38, RecoverHP: 0.8, GunRange: 85, LightRange: 28, LaserRange: 85, EngageDist: 60, FarmNPC: true, Explore: false,
 		Ghost: true, HomeExpo: 120, LootRadius: 90, CrateUntil: 150, UseDrops: false, Dodge: true, NoMortar: true,
-		Peek: true, LaserFirst: false, CrowdHide: true, Practice: true}
+		Peek: true, LaserFirst: false, CrowdHide: true, Practice: true,
+		FireGate: true, LeadDamp: true, AimGate: true}
 
 	p.LaserFirst = true
 
@@ -207,6 +216,7 @@ func (b *Brain) Act(o *Obs) (act Action) {
 			act.Aim = nil
 		} else {
 			b.lastAim = *a
+			b.lastAimValid = true
 		}
 	}
 	if math.IsNaN(act.Move[0]) || math.IsNaN(act.Move[1]) || math.IsInf(act.Move[0], 0) || math.IsInf(act.Move[1], 0) {
@@ -247,6 +257,26 @@ func (b *Brain) observe(o *Obs) {
 		if t == nil {
 			t = &Track{HitMe: -100}
 			tab[m.ID] = t
+		}
+		if b.P.LeadDamp && m.Kind == "mech" {
+			speed := hyp(m.Vel[0], m.Vel[1])
+			if t.prevVelValid && now-t.prevVelAt <= 0.5 && speed > 3 && hyp(t.prevHorizVel[0], t.prevHorizVel[1]) > 3 {
+				prevAngle := math.Atan2(t.prevHorizVel[1], t.prevHorizVel[0])
+				curAngle := math.Atan2(m.Vel[1], m.Vel[0])
+				if math.Abs(angDiff(curAngle, prevAngle)) > math.Pi/3 {
+					t.reversals = append(t.reversals, now)
+				}
+			}
+			t.prevHorizVel = [2]float64{m.Vel[0], m.Vel[1]}
+			t.prevVelAt, t.prevVelValid = now, true
+			cutoff := now - 4
+			kept := t.reversals[:0]
+			for _, at := range t.reversals {
+				if at >= cutoff {
+					kept = append(kept, at)
+				}
+			}
+			t.reversals = kept
 		}
 		t.MechSeen = *m
 		t.Seen = now
@@ -960,9 +990,28 @@ func (b *Brain) step(o *Obs, act *Action) {
 
 		var gy, gp float64
 		gunOK := false
+		gunLOS := true
+		gunPoint := tp
+		leadTV := tv
 		if gun != nil {
-			gy, gp = b.lead(muzzle, tp, tv, gun.Stats.Speed, grounded)
+			if b.P.LeadDamp && isMech && target != nil {
+				_, flight := leadImpact(muzzle, tp, tv, gun.Stats.Speed, grounded)
+				reversalsPerSecond := float64(len(target.reversals)) / 4
+				x := 2 * reversalsPerSecond * flight
+				k := 1.0
+				if x > 1e-6 {
+					k = (1 - math.Exp(-x)) / x
+				}
+				leadTV[0] *= k
+				leadTV[1] *= k
+				leadTV[2] *= k
+			}
+			gy, gp = b.lead(muzzle, tp, leadTV, gun.Stats.Speed, grounded)
+			gunPoint = leadPoint(muzzle, tp, leadTV, gun.Stats.Speed, grounded)
 			gunOK = dist <= gun.Stats.Range*0.96
+			if b.P.FireGate && isMech {
+				gunLOS = b.W.Clear(muzzle, gunPoint)
+			}
 		}
 
 		dp := Vec3{tp[0] + tv[0]*(lat+0.05), tp[1] + tv[1]*(lat+0.05), tp[2]}
@@ -976,8 +1025,17 @@ func (b *Brain) step(o *Obs, act *Action) {
 		tolY := math.Atan2(tr*0.75, math.Max(dist, 1))
 		tolP := math.Atan2(th*0.4, math.Max(dist, 1))
 		slew := func(wantY, wantP float64) bool {
-			ey := math.Max(0, math.Abs(angDiff(wantY, me.Aim[0]))-st.TurnRate*0.05)
-			ep := math.Max(0, math.Abs(wantP-me.Aim[1])-st.PitchRate*0.05)
+			yawErr := math.Abs(angDiff(wantY, me.Aim[0]))
+			pitchErr := math.Abs(wantP - me.Aim[1])
+			if b.P.AimGate {
+				prevYawErr := math.Abs(angDiff(wantY, b.lastAim[0]))
+				prevPitchErr := math.Abs(wantP - b.lastAim[1])
+				if !b.lastAimValid || prevYawErr >= tolY || prevPitchErr >= tolP {
+					return yawErr < tolY && pitchErr < tolP
+				}
+			}
+			ey := math.Max(0, yawErr-st.TurnRate*0.05)
+			ep := math.Max(0, pitchErr-st.PitchRate*0.05)
 			return ey < tolY && ep < tolP
 		}
 		for i, w := range me.Weapons {
@@ -986,7 +1044,7 @@ func (b *Brain) step(o *Obs, act *Action) {
 			}
 			switch w.Kind {
 			case "gun":
-				if gunOK && w.Ammo > 0 && w.Reload <= 0 && slew(gy, gp) {
+				if gunOK && gunLOS && w.Ammo > 0 && w.Reload <= 0 && slew(gy, gp) {
 					act.Fire[i] = true
 				}
 			case "lightning":
@@ -1198,22 +1256,36 @@ func (b *Brain) wantPickup(me *Self, kind string) bool {
 	return rank(kind) > cur
 }
 
-func (b *Brain) lead(muzzle, tp, tv Vec3, speed float64, grounded bool) (float64, float64) {
+func leadImpact(muzzle, tp, tv Vec3, speed float64, grounded bool) (Vec3, float64) {
 	if speed <= 0 {
 		speed = 252
 	}
 	t := 0.0
-	var px, py, pz float64
+	flight := lat
+	var point Vec3
 	for k := 0; k < 4; k++ {
 		tt := lat + t
-		px, py, pz = tp[0]+tv[0]*tt, tp[1]+tv[1]*tt, tp[2]
+		flight = tt
+		point = Vec3{tp[0] + tv[0]*tt, tp[1] + tv[1]*tt, tp[2]}
 		if !grounded {
-			pz += tv[2] * tt * 0.5
+			point[2] += tv[2] * tt * 0.5
 		}
-		d := math.Sqrt((px-muzzle[0])*(px-muzzle[0]) + (py-muzzle[1])*(py-muzzle[1]) + (pz-muzzle[2])*(pz-muzzle[2]))
+		dx, dy, dz := point[0]-muzzle[0], point[1]-muzzle[1], point[2]-muzzle[2]
+		d := math.Sqrt(dx*dx + dy*dy + dz*dz)
 		t = math.Max(0, d-3) / speed
 	}
-	return math.Atan2(py-muzzle[1], px-muzzle[0]), math.Atan2(pz-muzzle[2], hyp(px-muzzle[0], py-muzzle[1]))
+	return point, flight
+}
+
+func leadPoint(muzzle, tp, tv Vec3, speed float64, grounded bool) Vec3 {
+	point, _ := leadImpact(muzzle, tp, tv, speed, grounded)
+	return point
+}
+
+func (b *Brain) lead(muzzle, tp, tv Vec3, speed float64, grounded bool) (float64, float64) {
+	point := leadPoint(muzzle, tp, tv, speed, grounded)
+	return math.Atan2(point[1]-muzzle[1], point[0]-muzzle[0]),
+		math.Atan2(point[2]-muzzle[2], hyp(point[0]-muzzle[0], point[1]-muzzle[1]))
 }
 
 func (b *Brain) mortar(tube, foot, tv Vec3, v, g float64, st *MechStats) (yaw, pitch float64, ok bool) {
@@ -1972,6 +2044,7 @@ func squadParams(p Params) Params {
 	p.LowBonus = 200
 	p.LethalK = 0.7
 	p.HPw = 0.18
+	p.FireGate, p.LeadDamp, p.AimGate = true, true, true
 	p.MaxTarget = 200
 
 	return p
