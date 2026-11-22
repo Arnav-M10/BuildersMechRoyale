@@ -367,3 +367,4 @@ builders-4: fx_corner 5.48. fx_retreat submitted. Board: we're 32nd. New-top-tea
 Board 12:55 AM: we're 36th; 32nd BITS and Peaces 5.65.
 Clean sim (real map) matches reality: base 8.17, p_dodge 6.48 (real 5.30), p_8 8.01 → sim is a valid fast screen now.
 Sol variants built: sa 4d9d7f1 (micro-juke strafe + laser-window, from MarwanMoh11 who reports +0.36/192), sb e12b8df (explore for weapons when idle w/o laser), sc 0a6869c, sd f5906a4 (creative squad tactics). Stopped FFA clean queue by PID to free CPU. Screening fx_retreat/fx_weapon/sa/sb/sc/sd: 64 paired matches vs base (seed 61000) → clean/screen.txt.
+builders-4: fx_retreat 5.32. Paired clean screen (vs base, same seeds): sb +0.23 (64), fx_retreat +0.09 (55), fx_weapon -0.24 (62), sa -0.53 (64). sb (e12b8df) submitted to real server. Board: 37th, 32nd 5.65.
