@@ -73,6 +73,10 @@ type Brain struct {
 	explore      [2]float64
 	exploreUntil float64
 
+	searchVisited map[[2]int]bool
+	searchGoal    [2]float64
+	searchUntil   float64
+
 	stuckSince   float64
 	unstuckUntil float64
 	unstuckDir   [2]float64
@@ -347,6 +351,13 @@ func (b *Brain) observe(o *Obs) {
 		} else if b.pracOn {
 			b.P = squadParams(b.base)
 		}
+	}
+
+	if b.pracOn {
+		if b.searchVisited == nil {
+			b.searchVisited = make(map[[2]int]bool)
+		}
+		b.searchVisited[searchTile(me.Pos[0], me.Pos[1])] = true
 	}
 
 	z := &o.Zone
@@ -838,9 +849,18 @@ func (b *Brain) step(o *Obs, act *Action) {
 				}
 				mode = "home"
 			}
-		} else if b.P.Explore && !late && me.Cubes < b.cubeCap() && hpFrac > 0.7 && !danger {
-			mx, my = b.exploreMove(o)
-			mode = "explore"
+		} else if !late && !danger {
+			needWeapon := laser == nil || len(me.Weapons) < 2 || me.Weapons[1] == nil
+			if b.pracOn && (needWeapon || me.Cubes < b.cubeCap()) && me.InZone && hpFrac > 0.5 && now-b.lastHurt > 2.5 {
+				mx, my = b.practiceExploreMove(o)
+				mode = "loot:cube-search"
+				if needWeapon {
+					mode = "loot:weapon-search"
+				}
+			} else if b.P.Explore && me.Cubes < b.cubeCap() && hpFrac > 0.7 {
+				mx, my = b.exploreMove(o)
+				mode = "explore"
+			}
 		}
 	}
 
@@ -1102,6 +1122,7 @@ func (b *Brain) step(o *Obs, act *Action) {
 	if len(me.Weapons) > 1 && me.Weapons[1] != nil {
 		slot1 = me.Weapons[1].Kind
 	}
+	var fallbackMortar *int
 	for i := range o.Pickups {
 		p := &o.Pickups[i]
 		if hyp(p.Pos[0]-x, p.Pos[1]-y) > b.Cfg.Loot.PickupRadius-0.3 || math.Abs(p.Pos[2]-zf) > 3.6 {
@@ -1111,6 +1132,12 @@ func (b *Brain) step(o *Obs, act *Action) {
 			continue
 		}
 		id := p.ID
+		if b.pracOn && b.P.NoMortar && slot1 == "" && p.Kind == "mortar" {
+			if fallbackMortar == nil {
+				fallbackMortar = &id
+			}
+			continue
+		}
 		act.Take = &id
 		if slot1 != "" && len(me.Weapons) > 0 && me.Weapons[0] != nil {
 			if slot1 == "laser" && me.Weapons[1].Charge > 0 {
@@ -1121,6 +1148,9 @@ func (b *Brain) step(o *Obs, act *Action) {
 			act.Drop = &one
 		}
 		break
+	}
+	if act.Take == nil && fallbackMortar != nil {
+		act.Take = fallbackMortar
 	}
 
 	act.Move = [2]float64{mx, my}
@@ -1183,7 +1213,10 @@ func (b *Brain) wantPickup(me *Self, kind string) bool {
 		return false
 	}
 	if kind == "mortar" && b.P.NoMortar {
-		return false
+		emptySecondary := len(me.Weapons) < 2 || me.Weapons[1] == nil
+		if !b.pracOn || !emptySecondary {
+			return false
+		}
 	}
 	rank := func(k string) int {
 		if b.P.LaserFirst && k == "laser" {
@@ -1797,6 +1830,62 @@ func (b *Brain) exploreMove(o *Obs) (float64, float64) {
 		return 0, 0
 	}
 	return b.travel(me, b.explore[0], b.explore[1])
+}
+
+func searchTile(x, y float64) [2]int {
+	const tileSize = 40.0
+	return [2]int{int(math.Floor(x / tileSize)), int(math.Floor(y / tileSize))}
+}
+
+func (b *Brain) practiceExploreMove(o *Obs) (float64, float64) {
+	me := &o.Self
+	x, y := me.Pos[0], me.Pos[1]
+	z := &o.Zone
+	live := b.curZone(z)
+	inside := func(px, py float64) bool {
+		return hyp(px-live.X, py-live.Y) <= live.R-4 &&
+			hyp(px-z.NextCenter[0], py-z.NextCenter[1]) <= z.NextRadius*0.85
+	}
+	gx, gy := b.searchGoal[0], b.searchGoal[1]
+	if b.now < b.searchUntil && hyp(gx-x, gy-y) >= 6 && inside(gx, gy) {
+		return b.travel(me, gx, gy)
+	}
+
+	// Score local waypoints by how much new ground they could reveal.
+	best := math.Inf(-1)
+	phase := float64(o.Tick%16) * math.Pi / 128
+	for i := 0; i < 16; i++ {
+		sn, cs := math.Sincos(phase + float64(i)*math.Pi/8)
+		for _, d := range [...]float64{55, 100, 160} {
+			px, py := x+cs*d, y+sn*d
+			if !inside(px, py) || !b.W.InBounds(px, py) || !b.W.Reachable(px, py) {
+				continue
+			}
+			tile := searchTile(px, py)
+			score := -d / 25
+			if !b.searchVisited[tile] {
+				score += 8
+			}
+			for dy := -1; dy <= 1; dy++ {
+				for dx := -1; dx <= 1; dx++ {
+					if !b.searchVisited[[2]int{tile[0] + dx, tile[1] + dy}] {
+						score++
+					}
+				}
+			}
+			if score > best {
+				best = score
+				gx, gy = px, py
+			}
+		}
+	}
+	if math.IsInf(best, -1) {
+		b.searchUntil = 0
+		return 0, 0
+	}
+	b.searchGoal = [2]float64{gx, gy}
+	b.searchUntil = b.now + 20
+	return b.travel(me, gx, gy)
 }
 
 func (b *Brain) homeCost(o *Obs, px, py float64) float64 {
