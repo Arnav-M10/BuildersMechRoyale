@@ -624,6 +624,11 @@ func (b *Brain) step(o *Obs, act *Action) {
 		b.lastThreatAt = now
 	}
 
+	// Dealing damage restarts the HP regeneration delay, including farm damage.
+	// Keep collecting loose loot while we recover from a meaningful HP deficit.
+	recovering := b.pracOn && me.InZone && !danger && now-b.lastHurt >= 2.5 &&
+		st.RegenPerS > 0 && hpFrac < 0.82 && me.MaxHP-me.HP >= 2*st.RegenPerS
+
 	finishing := target != nil && target.Dist < 120 && (target.HP < 200 || target.HP < me.HP*0.5)
 	_, myLaser := hasWeapon(me.Weapons, "laser")
 	outgunned := target != nil && holds(target.Weapons, "laser") && myLaser == nil && target.Dist > 55 && hpFrac < 0.8
@@ -799,7 +804,7 @@ func (b *Brain) step(o *Obs, act *Action) {
 		mx, my = b.travel(me, zgx, zgy)
 		mode = "zone"
 	default:
-		lc := b.chooseLoot(o, hpFrac, danger)
+		lc := b.chooseLoot(o, hpFrac, danger, recovering)
 		if lc != nil {
 			mode = "loot:" + lc.kind
 			switch lc.kind {
@@ -918,7 +923,7 @@ func (b *Brain) step(o *Obs, act *Action) {
 			farm, farmPos, defend = worst, nil, true
 		}
 	}
-	if b.P.Econ && target == nil && farm == nil && farmPos == nil && gun != nil && !b.retreat {
+	if b.P.Econ && !recovering && target == nil && farm == nil && farmPos == nil && gun != nil && !b.retreat {
 
 		reach := 110.0
 		for _, t := range b.tracks {
@@ -1609,7 +1614,7 @@ type lootChoice struct {
 	value float64
 }
 
-func (b *Brain) chooseLoot(o *Obs, hpFrac float64, danger bool) *lootChoice {
+func (b *Brain) chooseLoot(o *Obs, hpFrac float64, danger, recovering bool) *lootChoice {
 	me := &o.Self
 	x, y := me.Pos[0], me.Pos[1]
 	z := &o.Zone
@@ -1694,12 +1699,14 @@ func (b *Brain) chooseLoot(o *Obs, hpFrac float64, danger bool) *lootChoice {
 				consider("cube", c.ID, c.Pos, 110)
 			}
 		}
-		for _, c := range b.crates {
-			if !hurt || hyp(c.Pos[0]-x, c.Pos[1]-y) < 35 {
-				consider("crate", c.ID, c.Pos, 105)
+		if !recovering {
+			for _, c := range b.crates {
+				if !hurt || hyp(c.Pos[0]-x, c.Pos[1]-y) < 35 {
+					consider("crate", c.ID, c.Pos, 105)
+				}
 			}
 		}
-		if b.P.FarmNPC && hpFrac > 0.6 && !mechNear {
+		if !recovering && b.P.FarmNPC && hpFrac > 0.6 && !mechNear {
 			for _, n := range b.npcs {
 				v := 170.0
 				if now-n.Seen > 12 {
@@ -1758,7 +1765,7 @@ func (b *Brain) chooseLoot(o *Obs, hpFrac float64, danger bool) *lootChoice {
 	if b.P.FarmHP > 0 {
 		farmHP = b.P.FarmHP
 	}
-	if hpFrac > farmHP && !danger && now < b.P.CrateUntil {
+	if !recovering && hpFrac > farmHP && !danger && now < b.P.CrateUntil {
 		for _, c := range b.crates {
 			if hyp(c.Pos[0]-x, c.Pos[1]-y) < b.P.LootRadius {
 				consider("crate", c.ID, c.Pos, cubeV*0.6)
