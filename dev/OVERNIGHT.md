@@ -316,3 +316,6 @@ go-aim real draw 5.60; FFA go-aim 7.82 (22 m, vs base 7.61). gg3s15 submitted.
 gg3s15 5.52; FFA go-aim 7.41 (59 m) ≈ base → aim fixes no gain. g619s4 submitted.
 ALLBOTS_REPORT.md (Codex, 244 bots) → FFA recs: sound avoidance, early FFA laser seek, heal to ~85% before re-engaging, nanites early; practice: no strong new levers. Built FFA-only variants on go-619: ffa-ls `31097d2`, ffa-rec `56faede`, ffa-nano `7f1bf6b`, ffa-all3 `a25e0a2`; testing vs 15 clones.
 g619s4 5.31; gg3s16 submitted. FFA vs clones: go-619 7.78, go-aim 7.58 (64 m each) ≈ base.
+
+## Practice A/B (8 PM): baseline giddy code ≈5.65 mean per draw (24 draws: giddy3 + 619 families). User: still no bot genuinely > 6.
+Practice-only variants on go-619 with 4 salts each (check PASS): pd = UseDrops in squad (pd1-4 b8a2a48,c54a0ef,1cbee6d,f8499a8); pk = Stick 300 / LowBonus 300 / Finish 30 (pk1-4 d484e18,0dc9947,1ccac36,99d3ef1). Interleave with base draws; need ~mean > 5.95 over 4 to call a gain.
