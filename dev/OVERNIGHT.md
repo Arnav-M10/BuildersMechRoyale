@@ -341,3 +341,4 @@ ph1 (HP banking) REAL 4.25; sim ph 3.82 (96 m) vs base ~4.9-5.3 → dropped. Sim
 pb2 5.69 (pb: 5.54, 5.69). pb3 submitted.
 FFA: ffa-sound (sound-aware avoidance) 8.06 over 64 m vs base 7.61/7.78 → BEST FFA variant; confirming on independent seed set 9500 (ffa-sound vs go-619).
 FFA optimizer round-0 leaders (16 m): cfg7 7.88, cfg18 7.19, cfg6 6.88 vs baseline 5.06 — common: Lethal on, GunRange ~100-110, Finish ~18-30, LaserSeek 100-150.
+pb3 5.71 (pb 5.54/5.69/5.71 → 5.65). Board 10:30 PM: we're 36th; 32nd Buildmaxx 6.19. pb4 submitted.
