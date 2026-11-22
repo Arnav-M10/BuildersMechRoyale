@@ -16,6 +16,11 @@ type Track struct {
 	LOS     bool
 	Closing float64
 	Engage  bool
+
+	laserLastSeen    float64
+	laserChargeSince float64
+	laserCharging    bool
+	laserCooldownEnd float64
 }
 
 type known struct {
@@ -51,6 +56,10 @@ type Brain struct {
 
 	strafe      float64
 	strafeUntil float64
+
+	practiceJukeSide   float64
+	practiceJukeUntil  float64
+	practiceShortUntil float64
 
 	retreat   bool
 	coverAt   float64
@@ -497,6 +506,9 @@ func (b *Brain) step(o *Obs, act *Action) {
 	b.now = o.T
 	now := o.T
 	b.observe(o)
+	if b.pracOn {
+		b.observePracticeLaser(o)
+	}
 	st := &me.Stats
 	x, y, zf := me.Pos[0], me.Pos[1], me.Pos[2]
 	z := &o.Zone
@@ -686,6 +698,23 @@ func (b *Brain) step(o *Obs, act *Action) {
 	zoneMust := !me.InZone || now+tNeed+3 >= deadline
 	zoneShould := now+tNeed+14 >= deadline
 
+	var coverFrom *Track
+	var punishPeek bool
+	if b.pracOn && me.Grounded && me.InZone && !zoneShould && !late && !b.retreat && !finishing && laser != nil {
+		// With no clear shot, a recently fired laser marks a short opportunity
+		// to step around nearby cover while the opponent cannot return a beam.
+		peekTarget := foe
+		if peekTarget == nil {
+			peekTarget = hidden
+		}
+		coverFrom, punishPeek = b.practiceLaserPosition(o, seen, peekTarget, laser, hpFrac)
+		if punishPeek && b.practicePeekReachable(o, peekTarget) {
+			foe = peekTarget
+		} else {
+			punishPeek = false
+		}
+	}
+
 	escJump := false
 	switch {
 	case b.escape(me, &mx, &my, &boost, &escJump):
@@ -705,7 +734,7 @@ func (b *Brain) step(o *Obs, act *Action) {
 			boost = me.Energy > 10 && (mx != 0 || my != 0)
 			mode = "cover"
 		} else if target != nil {
-			mx, my = b.fightMove(o, target, seen, 1)
+			mx, my = b.fightMove(o, target, seen, 1, false, nil)
 			mode = "cornered"
 		} else {
 			mx, my = b.travel(me, zgx, zgy)
@@ -743,7 +772,7 @@ func (b *Brain) step(o *Obs, act *Action) {
 			ready = true
 		}
 		wantLos := -1.0
-		if ready {
+		if ready || punishPeek {
 			wantLos = 1
 		}
 		if b.P.Peek && !hot {
@@ -759,13 +788,13 @@ func (b *Brain) step(o *Obs, act *Action) {
 		}
 		if keep := b.P; b.P.Finish > 0 && foe.HP < finHP*foe.MaxHP && hpFrac > 0.42 && crowd <= 2 {
 			b.P.GunRange, b.P.LaserRange, b.P.LightRange = b.P.Finish, b.P.Finish, b.P.Finish
-			mx, my = b.fightMove(o, foe, seen, wantLos)
+			mx, my = b.fightMove(o, foe, seen, wantLos, b.pracOn && !zoneShould && !late, coverFrom)
 			b.P = keep
 			if b.P.FinishRush && foe.Dist > 2*b.P.Finish && me.Energy > 30 {
 				boost = true
 			}
 		} else {
-			mx, my = b.fightMove(o, foe, seen, wantLos)
+			mx, my = b.fightMove(o, foe, seen, wantLos, b.pracOn && !zoneShould && !late, coverFrom)
 		}
 		if light != nil && foe.Dist > 50 && me.Energy > 55 && wantLos > 0 {
 			boost = true
@@ -804,7 +833,7 @@ func (b *Brain) step(o *Obs, act *Action) {
 				t := b.npcs[lc.id]
 				if t != nil && now-t.Seen < 1 && t.LOS && t.Dist < 75 {
 					farm = t
-					mx, my = b.fightMove(o, t, seen, 1)
+					mx, my = b.fightMove(o, t, seen, 1, false, nil)
 				} else {
 					mx, my = b.travel(me, lc.pos[0], lc.pos[1])
 				}
@@ -1376,7 +1405,159 @@ func (b *Brain) prefRange(me *Self, t *Track) float64 {
 	return r
 }
 
-func (b *Brain) fightMove(o *Obs, tg *Track, seen []*Track, wantLos float64) (float64, float64) {
+// observePracticeLaser uses consecutive charge observations and confirmed
+// damage. The base Obs type does not decode the protocol's beam list.
+func (b *Brain) observePracticeLaser(o *Obs) {
+	now := o.T
+	_, lightning := hasWeapon(o.Self.Weapons, "lightning")
+	// Reserve time for reaction latency and potentially faster enemy lasers.
+	cooldown := math.Min(1.5, b.Cfg.Weapons["laser"].Cooldown)
+	for _, m := range o.Mechs {
+		if m.Kind != "mech" {
+			continue
+		}
+		t := b.tracks[m.ID]
+		if t == nil || !holds(m.Weapons, "laser") {
+			continue
+		}
+		continuous := now-t.laserLastSeen <= 0.16
+		if m.Charging {
+			if !t.laserCharging || !continuous {
+				t.laserChargeSince = now
+			}
+			t.laserCooldownEnd = 0
+		} else if t.laserCharging && continuous && now-t.laserChargeSince >= 0.19 && lightning == nil {
+			t.laserCooldownEnd = now + cooldown - 0.1
+		}
+		t.laserLastSeen = now
+		t.laserCharging = m.Charging
+	}
+	for _, e := range o.Events {
+		if e.Type == "effect" && e.Effect == "short" {
+			short := b.Cfg.Weapons["lightning"].ShortS
+			if short <= 0 {
+				short = 2
+			}
+			b.practiceShortUntil = now + short
+		}
+		if e.Type == "damaged" && e.Weapon == "laser" && e.By != nil {
+			if t := b.tracks[*e.By]; t != nil && !t.Charging {
+				t.laserCooldownEnd = now + cooldown - 0.1
+			}
+		}
+	}
+}
+
+func (b *Brain) laserMuzzle(t *Track) Vec3 {
+	return Vec3{t.Pos[0], t.Pos[1], t.Pos[2] + b.Cfg.Mech.MuzzleHeight*b.scaleOf(t.Cubes)}
+}
+
+func (b *Brain) practiceLaserPosition(o *Obs, seen []*Track, target *Track, laser *WeaponState, hpFrac float64) (*Track, bool) {
+	me := &o.Self
+	now := o.T
+	cooling := laser.Charge <= 0 && laser.Cooldown > 0.60
+	if !cooling {
+		if hpFrac < 0.55 || now < b.practiceShortUntil ||
+			target == nil || target.Seen != now || target.LOS || target.Charging || !holds(target.Weapons, "laser") ||
+			target.Dist > laser.Stats.Range*0.95 || laser.Cooldown > 0.15 {
+			return nil, false
+		}
+		need := math.Max(0, laser.Stats.Charge-laser.Charge) + 0.2
+		if laser.Charge <= 0 {
+			need = math.Max(0.85, need)
+		}
+		if target.laserCooldownEnd < now+need {
+			return nil, false
+		}
+	}
+
+	myUpper := Vec3{me.Pos[0], me.Pos[1], me.Pos[2] + me.Stats.Height*0.85}
+	myCenter := Vec3{me.Pos[0], me.Pos[1], me.Pos[2] + me.Stats.Height*0.6}
+	var readyEnemy *Track
+	exposed := 0
+	laserRange := b.Cfg.Weapons["laser"].Range
+	for _, e := range seen {
+		if e.Seen != now || e.Dist > laserRange {
+			continue
+		}
+		muzzle := b.laserMuzzle(e)
+		if !b.W.Clear(muzzle, myUpper) && !b.W.Clear(muzzle, myCenter) {
+			continue
+		}
+		exposed++
+		if !holds(e.Weapons, "laser") || (!e.Charging && e.laserCooldownEnd > now+0.65) {
+			continue
+		}
+		if readyEnemy == nil || (e.Charging && !readyEnemy.Charging) ||
+			(e.Charging == readyEnemy.Charging && e.Dist < readyEnemy.Dist) {
+			readyEnemy = e
+		}
+	}
+	if cooling {
+		if hpFrac < 0.90 || exposed >= 2 {
+			return readyEnemy, false
+		}
+		return nil, false
+	}
+	return nil, readyEnemy == nil && exposed <= 1
+}
+
+func (b *Brain) practicePeekReachable(o *Obs, target *Track) bool {
+	me := &o.Self
+	x, y := me.Pos[0], me.Pos[1]
+	center := b.center(target)
+	for k := 0; k < 16; k++ {
+		a := float64(k) * math.Pi / 8
+		px, py := x+6*math.Cos(a), y+6*math.Sin(a)
+		if b.zonePenalty(&o.Zone, px, py) > 0 || !b.W.InBounds(px, py) ||
+			!b.W.Free(px, py) || !b.W.LineWalkable(x, y, px, py) {
+			continue
+		}
+		pz := b.W.WalkAt(px, py)
+		if b.W.Clear(Vec3{px, py, pz + me.Stats.MuzzleHeight}, center) {
+			return true
+		}
+	}
+	return false
+}
+
+// Bias the existing walkable, crossfire-scored moves perpendicular to the
+// nearest gun threat so steady-velocity lead has less time to stay valid.
+func (b *Brain) practiceJuke(o *Obs, seen []*Track) (float64, float64) {
+	me := &o.Self
+	if _, laser := hasWeapon(me.Weapons, "laser"); laser != nil && laser.Charge > 0 {
+		return 0, 0
+	}
+	var threat *Track
+	for _, t := range seen {
+		if t.Seen != o.T || !t.LOS || t.Dist < 50 || t.Dist > 180 || !holds(t.Weapons, "gun") {
+			continue
+		}
+		toMe := math.Atan2(me.Pos[1]-t.Pos[1], me.Pos[0]-t.Pos[0])
+		if o.T-t.HitMe >= 1.3 && math.Abs(angDiff(t.Aim[0], toMe)) > 0.28 {
+			continue
+		}
+		if threat == nil || t.Dist < threat.Dist {
+			threat = t
+		}
+	}
+	if threat == nil {
+		return 0, 0
+	}
+	if o.T >= b.practiceJukeUntil {
+		if b.practiceJukeSide == 0 {
+			b.practiceJukeSide = b.strafe
+		} else {
+			b.practiceJukeSide = -b.practiceJukeSide
+		}
+		b.practiceJukeUntil = o.T + 0.425 + 0.125*math.Sin(19*o.T+float64(b.Slot))
+	}
+	dx, dy := threat.Pos[0]-me.Pos[0], threat.Pos[1]-me.Pos[1]
+	d := hyp(dx, dy)
+	return -dy / d * b.practiceJukeSide, dx / d * b.practiceJukeSide
+}
+
+func (b *Brain) fightMove(o *Obs, tg *Track, seen []*Track, wantLos float64, practiceFight bool, coverFrom *Track) (float64, float64) {
 	me := &o.Self
 	x, y := me.Pos[0], me.Pos[1]
 	rp := b.prefRange(me, tg)
@@ -1390,6 +1571,10 @@ func (b *Brain) fightMove(o *Obs, tg *Track, seen []*Track, wantLos float64) (fl
 		b.strafeUntil = b.now + 0.3 + b.rng.Float64()*0.7
 	}
 	sx, sy := -uy*b.strafe, ux*b.strafe
+	var jx, jy float64
+	if practiceFight && me.Grounded && me.InZone {
+		jx, jy = b.practiceJuke(o, seen)
+	}
 	tc := b.center(tg)
 	mh := me.Stats.MuzzleHeight
 	var cube *known
@@ -1400,6 +1585,10 @@ func (b *Brain) fightMove(o *Obs, tg *Track, seen []*Track, wantLos float64) (fl
 	}
 	best := math.Inf(-1)
 	var mx, my float64
+	var enemyMuzzle Vec3
+	if coverFrom != nil {
+		enemyMuzzle = b.laserMuzzle(coverFrom)
+	}
 	blockedSide := false
 	rings := 1
 	if b.P.Peek {
@@ -1437,6 +1626,13 @@ func (b *Brain) fightMove(o *Obs, tg *Track, seen []*Track, wantLos float64) (fl
 			}
 		}
 		body := Vec3{cx, cy, cz + me.Stats.Height*0.6}
+		zoneCost := b.zonePenalty(&o.Zone, cx, cy)
+		if coverFrom != nil && zoneCost == 0 {
+			upper := Vec3{cx, cy, cz + me.Stats.Height*0.85}
+			if !b.W.Clear(enemyMuzzle, body) && !b.W.Clear(enemyMuzzle, upper) {
+				s += 62
+			}
+		}
 		for _, e := range seen {
 			if e == tg || hyp(e.Pos[0]-cx, e.Pos[1]-cy) > 170 {
 				continue
@@ -1445,7 +1641,7 @@ func (b *Brain) fightMove(o *Obs, tg *Track, seen []*Track, wantLos float64) (fl
 				s -= 30
 			}
 		}
-		s -= b.zonePenalty(&o.Zone, cx, cy)
+		s -= zoneCost
 		if cube != nil {
 			s += 1.5 * (hyp(cube.Pos[0]-x, cube.Pos[1]-y) - hyp(cube.Pos[0]-cx, cube.Pos[1]-cy))
 		}
@@ -1453,7 +1649,11 @@ func (b *Brain) fightMove(o *Obs, tg *Track, seen []*Track, wantLos float64) (fl
 			s -= (4 - cl) * 2.5
 		}
 		if wantLos > 0 {
-			s += 9 * (dx*sx + dy*sy)
+			if jx != 0 || jy != 0 {
+				s += 19 * (dx*jx + dy*jy)
+			} else {
+				s += 9 * (dx*sx + dy*sy)
+			}
 		}
 		if k < 0 {
 			s -= 8
