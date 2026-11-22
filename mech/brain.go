@@ -609,12 +609,20 @@ func (b *Brain) step(o *Obs, act *Action) {
 	}
 	danger := false
 	crowd := 0
+	hunters := 0
 	for _, t := range seen {
 		if t.Engage || now-t.HitMe < 4 {
 			danger = true
 		}
 		if t.Seen == now && (t.Engage || (t.LOS && t.Dist < 150)) {
 			crowd++
+		}
+		if b.pracOn && t.Seen == now && t.Kind == "mech" && t.Dist < 190 {
+			toMe := math.Atan2(y-t.Pos[1], x-t.Pos[0])
+			aimedAtMe := math.Abs(angDiff(t.Aim[0], toMe)) < 0.38
+			if now-t.HitMe < 6 || (t.Dist < 175 && aimedAtMe) || (t.Dist < 125 && t.Closing > 3) {
+				hunters++
+			}
 		}
 	}
 	if danger || now-b.lastHurt < 3 {
@@ -625,6 +633,10 @@ func (b *Brain) step(o *Obs, act *Action) {
 	_, myLaser := hasWeapon(me.Weapons, "laser")
 	outgunned := target != nil && holds(target.Weapons, "laser") && myLaser == nil && target.Dist > 55 && hpFrac < 0.8
 	swamped := b.P.CrowdHide && (crowd >= 3 || (crowd == 2 && hpFrac < 0.65) || outgunned)
+	pressureHold := b.pracOn && !finishing && ((hunters >= 2 && hpFrac < 0.82) || (hunters >= 3 && hpFrac < 0.95))
+	if pressureHold {
+		swamped = true
+	}
 	if b.P.OddsFlee > 0 && target != nil && !finishing && b.odds(me, target, now, false) < b.P.OddsFlee {
 		b.oddsFleeUntil = now + 5
 	}
@@ -635,7 +647,11 @@ func (b *Brain) step(o *Obs, act *Action) {
 		b.retreat = true
 		b.coverAt = -1
 	}
-	if b.retreat && !swamped && (hpFrac > b.P.RecoverHP || (now-b.lastThreatAt > 7 && hpFrac > 0.55)) {
+	recoverHP := b.P.RecoverHP
+	if b.pracOn && hunters >= 3 && recoverHP < 0.95 {
+		recoverHP = 0.95
+	}
+	if b.retreat && !swamped && (hpFrac > recoverHP || (!b.pracOn && now-b.lastThreatAt > 7 && hpFrac > 0.55)) {
 		b.retreat = false
 	}
 	if b.P.LoseRule {
@@ -658,7 +674,8 @@ func (b *Brain) step(o *Obs, act *Action) {
 		if losing {
 			b.loseAt = now
 		}
-		b.retreat = now-b.loseAt < 1.5 && b.loseAt > 0
+		recoverHold := b.pracOn && b.retreat && !finishing && hpFrac < recoverHP
+		b.retreat = (now-b.loseAt < 1.5 && b.loseAt > 0) || pressureHold || recoverHold
 	}
 
 	exposed := false
@@ -700,7 +717,7 @@ func (b *Brain) step(o *Obs, act *Action) {
 		mx, my = b.travel(me, zgx, zgy)
 		boost = (!me.InZone || now+tNeed >= deadline) && me.Energy > 5
 		mode = "zone"
-	case b.retreat && !finishing && !late:
+	case b.retreat && !finishing && (!late || b.pracOn):
 		if b.coverMove(o, seen, &mx, &my) {
 			boost = me.Energy > 10 && (mx != 0 || my != 0)
 			mode = "cover"
@@ -885,6 +902,7 @@ func (b *Brain) step(o *Obs, act *Action) {
 	muzzle := Vec3{x + me.Vel[0]*lat, y + me.Vel[1]*lat, zf + st.MuzzleHeight}
 	aim := [2]float64{me.Aim[0], 0}
 	haveAim := false
+	moveForSurvival := b.pracOn && !finishing && (zoneMust || b.retreat) && (mx != 0 || my != 0)
 	var tp, tv Vec3
 	var tr, th float64
 	shootable := false
@@ -995,6 +1013,10 @@ func (b *Brain) step(o *Obs, act *Action) {
 					act.Fire[i] = true
 				}
 			case "laser":
+				if moveForSurvival {
+					act.Fire[i] = false
+					break
+				}
 				if !isMech || dist > w.Stats.Range*0.97 {
 					break
 				}
@@ -1063,6 +1085,10 @@ func (b *Brain) step(o *Obs, act *Action) {
 				act.Fire[i] = true
 			}
 		}
+	}
+	bankHealth := b.pracOn && b.retreat && !finishing && (mx != 0 || my != 0)
+	if bankHealth {
+		act.Fire = [2]bool{}
 	}
 
 	if !haveAim {
@@ -1952,6 +1978,7 @@ func (b *Brain) odds(me *Self, t *Track, now float64, opening bool) float64 {
 func squadParams(p Params) Params {
 	p.Ghost = false
 	p.Peek = false
+	p.RecoverHP = 0.9
 	p.LaserFirst = true
 	p.LaserRange = 120
 	p.LootRadius = 150
