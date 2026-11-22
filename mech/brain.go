@@ -160,6 +160,7 @@ func DefaultParams() Params {
 		Peek: true, LaserFirst: false, CrowdHide: true, Practice: true}
 
 	p.LaserFirst = true
+	p.LaserSeek = 150 // FFA: detour for a laser (squad mode overrides with 240)
 
 	return p
 }
