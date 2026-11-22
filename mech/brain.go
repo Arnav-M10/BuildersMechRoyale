@@ -504,6 +504,9 @@ func (b *Brain) step(o *Obs, act *Action) {
 
 	if o.Offer != nil && len(o.Offer.Choices) > 0 {
 		p := pickUpgrade(o.Offer, b.P.LaserUp, b.P.NanoUp, b.P.SpeedUp)
+		if b.pracOn {
+			p = pickUpgradeHeld(o.Offer, p, me.Weapons)
+		}
 		act.Pick = &p
 	}
 
@@ -2016,4 +2019,43 @@ func (b *Brain) showsBack(t *Track, x, y float64) bool {
 		arc = 180
 	}
 	return math.Abs(angDiff(t.Aim[0], math.Atan2(y-t.Pos[1], x-t.Pos[0]))) > arc*math.Pi/360+0.1
+}
+
+// pickUpgradeHeld (practice only): if the base pick upgrades a weapon we do not
+// hold, take the best-ranked choice that does not, keeping the base order.
+func pickUpgradeHeld(of *Offer, base int, ws []*WeaponState) int {
+	_, hasL := hasWeapon(ws, "laser")
+	_, hasZ := hasWeapon(ws, "lightning")
+	_, hasM := hasWeapon(ws, "mortar")
+	useless := func(id string) bool {
+		switch {
+		case len(id) >= 6 && id[:6] == "laser_":
+			return hasL == nil
+		case len(id) >= 10 && id[:10] == "lightning_":
+			return hasZ == nil
+		case len(id) >= 7 && id[:7] == "mortar_":
+			return hasM == nil
+		}
+		return false
+	}
+	if base < 0 || base >= len(of.Choices) || !useless(of.Choices[base].ID) {
+		return base
+	}
+	best, bestRank := base, 1<<30
+	for i, c := range of.Choices {
+		if useless(c.ID) {
+			continue
+		}
+		rank := len(upgradeOrder)
+		for r, id := range upgradeOrder {
+			if id == c.ID {
+				rank = r
+				break
+			}
+		}
+		if rank < bestRank {
+			best, bestRank = i, rank
+		}
+	}
+	return best
 }
