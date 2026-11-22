@@ -826,7 +826,7 @@ func (b *Brain) step(o *Obs, act *Action) {
 				}
 			default:
 				mx, my = b.travel(me, lc.pos[0], lc.pos[1])
-				if lc.kind == "pickup" && lc.value >= 195 && now < 55 && !danger && me.Energy > 76 &&
+				if lc.kind == "pickup" && lc.value >= 195 && now < 75 && !danger && me.Energy > 76 &&
 					hyp(lc.pos[0]-x, lc.pos[1]-y) > 24 {
 					boost = true
 				}
@@ -1763,14 +1763,14 @@ func (b *Brain) chooseLoot(o *Obs, hpFrac float64, danger bool) *lootChoice {
 		}
 		return best
 	}
-	if now < 55 && !danger && now-b.lastHurt > 3 && hpFrac > 0.70 && me.InZone {
+	if now < 75 && !danger && now-b.lastHurt > 3 && hpFrac > 0.70 && me.InZone {
 		if _, laser := hasWeapon(me.Weapons, "laser"); laser == nil {
 			for _, p := range b.pickups {
 				if p.Kind != "laser" || !b.wantPickup(me, p.Kind) {
 					continue
 				}
 				d := hyp(p.Pos[0]-x, p.Pos[1]-y)
-				if d > 115 || hyp(p.Pos[0]-z.NextCenter[0], p.Pos[1]-z.NextCenter[1]) > z.NextRadius-8 {
+				if d > 165 || hyp(p.Pos[0]-z.NextCenter[0], p.Pos[1]-z.NextCenter[1]) > z.NextRadius-8 {
 					continue
 				}
 				v := 280.0
