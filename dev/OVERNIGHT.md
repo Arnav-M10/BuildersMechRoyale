@@ -306,3 +306,4 @@ go-619 scored 6.08 (not 6.19 → not an exact replica / scorer not fully determi
 FFA vs clones FINAL (64 m each, base 7.61): lurk 7.67, endgame 7.03, all 6.67, vulture 6.28 → keep unmodified Go for the final.
 Squad-sim calibration (96 m): giddy4 5.74 / giddy3 5.30 / giddy2 5.23 vs real 5.67 / 5.65 / 5.25 → weak; sim can't separate small practice gains.
 g619s1 5.38. Board 6:54 PM: we're 30th at 6.17; 32nd 6.13; leader tigerbyte 6.44. Plan: continuous salt draws (≈2-3%/draw >6.3).
+g619s2 5.75; g619s3 submitted. go-619 family: 6.08, 5.38, 5.75.
