@@ -378,3 +378,4 @@ su paired sim +0.20 vs base (64). Sol waste-audit variants on su, all check PASS
 sus1 real 5.66. Screen (partial): x1 -1.12 vs su (drop), x2 +0.33 vs su (46 m) → x2 submitted. Board: 39th, 32nd 5.76. Sol round 30: weapon-efficiency waste audit on x2 → y1-y3.
 **x2 REAL 5.78 → PICK (BB-26D59D89, 85b4c71). We're 32nd (inside top 32).** x2 sim +0.20 vs su (64); x3 -0.19 vs su (32, drop). y1-y3 draft builds pass check; rebuild when Sol finishes, then screen vs x2.
 Board 2:21 AM: 33rd at 5.78; 32nd giddygiddyboy 5.79. y1 rebuilt 775a15b (final), y2 45fcf0c, y3 4112d8c all PASS; screening vs x2. y2 submitted (extends x2's laser idea). x2 salts built (scratchpad/x2_salts.txt).
+y2 real 5.55 (drop). Screen vs x2: y1 -0.83 (drop), y2 +0.08, y3 pending. x2s1 (99cddf5) submitted. Board: 34th, 32nd 5.79. Sol round 31: pure-waste audit #3 on x2 → z1-z3.
