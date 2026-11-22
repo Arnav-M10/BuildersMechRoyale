@@ -359,3 +359,5 @@ Rerunning cleanly from /Users/arnav/Documents/BuildersHackathon/simruns/f1 (map 
 
 ## !!! RESCORE (Sun 12:00 AM CST): scorer builders-4 — every practice run = 96 fresh private random seeds; identical code keeps its first builders-4 score; every team's picked/best builders-3 entry auto-rescored over the next hour. Early board (15 teams): Vice City Vibecoders 5.96, Soloing 5.93, TigerTown27 5.52, ToneToneLay 5.51, AA's 5.49. Luck-inflated 6.2-6.4 scores disappear; true means decide. Our code family mean ~5.56 → competitive. Draws now have ~half the variance; real improvements matter much more.
 g619s8 5.65 (builders-3).
+Rescored (builders-4): we're 24th at 5.63; leader Ahmad Suliman 6.28; 32nd MalwareSurgeon 5.53 (board still populating).
+STRATEGY SHIFT: real server (96 random seeds, sd≈0.19/draw) is now the best evaluator. Sol implementing 3 practice-only death-cause fixes (fx_corner, fx_retreat, fx_weapon) → check.py → 2 real draws each → stack winners. Always pick the highest builders-4 score.
