@@ -1973,6 +1973,27 @@ func squadParams(p Params) Params {
 	p.LethalK = 0.7
 	p.HPw = 0.18
 	p.MaxTarget = 200
+	// Baked optimizer config p_8; no environment override.
+	p.RetreatHP = 0.392
+	p.RecoverHP = 0.681
+	p.GunRange = 72.229
+	p.LaserRange = 157.054
+	p.EngageDist = 111.657
+	p.LootRadius = 226.305
+	p.Stick = 99.638
+	p.HPw = 0.36
+	p.LowBonus = 154.623
+	p.MaxTarget = 250.016
+	p.FightLoot = 30.254
+	p.FarmHP = 0.737
+	p.LaserSeek = 226.833
+	p.Finish = 39.662
+	p.LethalK = 0.738
+	p.UseDrops = true
+	p.NanoUp = true
+	p.Peek = true
+	p.CrowdHide = true
+	p.LoseRule = false
 
 	return p
 }
