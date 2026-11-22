@@ -160,6 +160,7 @@ func DefaultParams() Params {
 		Peek: true, LaserFirst: false, CrowdHide: true, Practice: true}
 
 	p.LaserFirst = true
+	p.NanoUp = true // FFA: nanites early
 
 	return p
 }
@@ -1950,6 +1951,7 @@ func (b *Brain) odds(me *Self, t *Track, now float64, opening bool) float64 {
 }
 
 func squadParams(p Params) Params {
+	p.NanoUp = false // keep practice upgrades exactly as before
 	p.Ghost = false
 	p.Peek = false
 	p.LaserFirst = true
