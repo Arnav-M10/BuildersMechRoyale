@@ -347,3 +347,4 @@ Top-32 unique repos: Team-Xero (MIT, Rust) public HEAD is Friday's ~3.9 version 
 g619s5 5.60; g619s6 submitted. ffa-sound set2 (seed 9500) 7.44 (57 m) → avg with set1 ≈7.75 ≈ base; base set2 pending. Practice optimizer round0: cfg8 5.52 vs cfg0 4.88 (48 m).
 g619s6 5.31; g619s7 submitted. Codex now gpt-6.2-sol medium (per-call flag); Sol strategist + builder sessions running.
 Sol STRATEGY.md (dev/STRATEGY_SOL.md) adopted: alternate B (go-619 salts) / G (giddy3 salts) ~3:2; challengers need +0.5 paired sim gain then ≤4 real draws with stop rules; new bet = practice-only smarter bullet dodge (Sol implementing → variants/p_dodge); FFA: tune cfg18 leads 8.25 (48 m) — paired test before any final change.
+g619s7 5.31; gg3s17 submitted. Codex pipeline running (base, p_8, p_1, p_10, f_18, f_7); p_dodge (Sol) built + check PASS; paired practice sim running (seed 41000).
