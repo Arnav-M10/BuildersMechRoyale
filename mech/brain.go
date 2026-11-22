@@ -783,11 +783,15 @@ func (b *Brain) step(o *Obs, act *Action) {
 				r *= 0.57
 			}
 			var bc *Vec3
-			for _, c := range b.cubes {
-				if d := hyp(c.Pos[0]-x, c.Pos[1]-y); d < r {
-					r = d
-					cp := c.Pos
-					bc = &cp
+			if b.pracOn {
+				bc = b.practiceFightCube(o, r)
+			} else {
+				for _, c := range b.cubes {
+					if d := hyp(c.Pos[0]-x, c.Pos[1]-y); d < r {
+						r = d
+						cp := c.Pos
+						bc = &cp
+					}
 				}
 			}
 			if bc != nil {
@@ -1144,6 +1148,36 @@ func (b *Brain) step(o *Obs, act *Action) {
 	act.Move = [2]float64{mx, my}
 	act.Boost = boost && (mx != 0 || my != 0)
 	b.Mode = mode
+}
+
+// practiceFightCube only overrides combat movement for a short, direct pickup.
+func (b *Brain) practiceFightCube(o *Obs, limit float64) *Vec3 {
+	me := &o.Self
+	pickup := b.Cfg.Cubes.PickupRadius
+	walk := me.Stats.WalkSpeed
+	if !me.Grounded || !me.InZone || me.Cubes >= b.Cfg.Cubes.StatCap || pickup <= 0 || walk <= 0 {
+		return nil
+	}
+	closest := math.Min(limit, pickup+1.1*walk)
+	var best *Vec3
+	x, y, z := me.Pos[0], me.Pos[1], me.Pos[2]
+	live := b.curZone(&o.Zone)
+	for i := range o.Cubes {
+		p := &o.Cubes[i].Pos
+		d := hyp(p[0]-x, p[1]-y)
+		if d <= pickup || d >= closest || math.Abs(p[2]-z) >= 3.5 {
+			continue
+		}
+		if hyp(p[0]-live.X, p[1]-live.Y) > live.R-4 ||
+			b.now+(d-pickup)/walk+2 >= b.zoneDeadline(&o.Zone, p[0], p[1], 4) {
+			continue
+		}
+		if !b.W.LineWalkable(x, y, p[0], p[1]) {
+			continue
+		}
+		closest, best = d, p
+	}
+	return best
 }
 
 func (b *Brain) escape(me *Self, mx, my *float64, boost, jump *bool) bool {
