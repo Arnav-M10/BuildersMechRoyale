@@ -776,6 +776,11 @@ func (b *Brain) step(o *Obs, act *Action) {
 			boost = true
 		}
 		mode = "fight"
+		if b.pracOn && laser != nil && laser.Charge > 0 && laser.Charge < laser.Stats.Charge+0.1 &&
+			!zoneShould && target != nil && target.Dist < 165 && me.Grounded && me.Energy > 35 &&
+			(now-target.HitMe < 2 || target.Charging) {
+			boost = true
+		}
 		if b.P.FightBoost > 0 && me.Energy > b.P.FightBoost && (laser == nil || laser.Charge <= 0) && (light == nil || me.Energy > 60) {
 			boost = true
 		}
