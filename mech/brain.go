@@ -334,7 +334,7 @@ func (b *Brain) observe(o *Obs) {
 	if b.otherDead >= 5 {
 		b.notPractice = true
 	}
-	if on := b.base.Practice && !b.notPractice && now > 20; on != b.pracOn {
+	if on := b.base.Practice && !b.notPractice && now > 8; on != b.pracOn {
 		b.pracOn = on
 		b.P = b.base
 		if on {
