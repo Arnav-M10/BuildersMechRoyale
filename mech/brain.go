@@ -1506,6 +1506,21 @@ func (b *Brain) fightMove(o *Obs, tg *Track, seen []*Track, wantLos float64) (fl
 		}
 		if wantLos > 0 {
 			s += 9 * (dx*sx + dy*sy)
+			if b.pracOn && tg.Kind == "mech" && los && bd < 125 {
+				// Look half a second ahead instead of chasing the old aim line.
+				// Move to retain the shot, or cut across a wounded foe's escape.
+				future := tc
+				future[0] += tg.Vel[0] * 0.45
+				future[1] += tg.Vel[1] * 0.45
+				future[2] += clamp(tg.Vel[2]*0.45, -2, 2)
+				if b.W.Clear(Vec3{cx, cy, cz + mh}, future) {
+					s += 16
+					if tg.HP < 0.38*tg.MaxHP {
+						delta := d - hyp(future[0]-cx, future[1]-cy)
+						s += clamp(2.5*delta, -12, 12)
+					}
+				}
+			}
 		}
 		if k < 0 {
 			s -= 8
