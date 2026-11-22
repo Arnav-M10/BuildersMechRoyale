@@ -635,7 +635,7 @@ func (b *Brain) step(o *Obs, act *Action) {
 		b.retreat = true
 		b.coverAt = -1
 	}
-	if b.retreat && !swamped && (hpFrac > b.P.RecoverHP || (now-b.lastThreatAt > 7 && hpFrac > 0.55)) {
+	if b.retreat && !swamped && (hpFrac > b.P.RecoverHP || (now-b.lastThreatAt > 7 && hpFrac > b.recoverFloor())) {
 		b.retreat = false
 	}
 	if b.P.LoseRule {
@@ -1998,4 +1998,12 @@ func (b *Brain) showsBack(t *Track, x, y float64) bool {
 		arc = 180
 	}
 	return math.Abs(angDiff(t.Aim[0], math.Atan2(y-t.Pos[1], x-t.Pos[0]))) > arc*math.Pi/360+0.1
+}
+
+// recoverFloor: in FFA, heal to ~85% before re-engaging; practice keeps giddy's 55%.
+func (b *Brain) recoverFloor() float64 {
+	if b.pracOn {
+		return 0.55
+	}
+	return 0.85
 }
