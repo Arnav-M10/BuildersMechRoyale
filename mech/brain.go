@@ -779,7 +779,26 @@ func (b *Brain) step(o *Obs, act *Action) {
 		if b.P.FightBoost > 0 && me.Energy > b.P.FightBoost && (laser == nil || laser.Charge <= 0) && (light == nil || me.Energy > 60) {
 			boost = true
 		}
-		if b.P.FightLoot > 0 {
+		if b.pracOn && laser == nil && hpFrac > 0.65 && !zoneShould && crowd <= 1 &&
+			!finishing && foe.Dist > 55 && b.wantPickup(me, "laser") {
+			radius := 19.0
+			var reachable *known
+			for _, item := range b.pickups {
+				d := hyp(item.Pos[0]-x, item.Pos[1]-y)
+				if item.Kind != "laser" || now-item.Seen > 1.1 || d >= radius ||
+					math.Abs(item.Pos[2]-zf) > 2.5 ||
+					!b.W.LineWalkable(x, y, item.Pos[0], item.Pos[1]) ||
+					!b.W.Reachable(item.Pos[0], item.Pos[1]) {
+					continue
+				}
+				radius, reachable = d, item
+			}
+			if reachable != nil {
+				mx, my = b.travel(me, reachable.Pos[0], reachable.Pos[1])
+				mode = "fight:weapon"
+			}
+		}
+		if mode == "fight" && b.P.FightLoot > 0 {
 			r := b.P.FightLoot
 			if hpFrac <= 0.5 {
 				r *= 0.57
