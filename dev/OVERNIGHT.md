@@ -315,3 +315,4 @@ g619s3 5.44 (619 family: 6.08, 5.38, 5.75, 5.44 → mean 5.66). go-aim `eda89bc`
 go-aim real draw 5.60; FFA go-aim 7.82 (22 m, vs base 7.61). gg3s15 submitted.
 gg3s15 5.52; FFA go-aim 7.41 (59 m) ≈ base → aim fixes no gain. g619s4 submitted.
 ALLBOTS_REPORT.md (Codex, 244 bots) → FFA recs: sound avoidance, early FFA laser seek, heal to ~85% before re-engaging, nanites early; practice: no strong new levers. Built FFA-only variants on go-619: ffa-ls `31097d2`, ffa-rec `56faede`, ffa-nano `7f1bf6b`, ffa-all3 `a25e0a2`; testing vs 15 clones.
+g619s4 5.31; gg3s16 submitted. FFA vs clones: go-619 7.78, go-aim 7.58 (64 m each) ≈ base.
