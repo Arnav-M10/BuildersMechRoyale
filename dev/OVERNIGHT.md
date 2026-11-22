@@ -292,3 +292,7 @@ gg3s9 5.40; gg3s10 scoring.
 Codex Go FFA variants built (FFA-only, practice guarded): gf-v1-lurk `72c8214`, gf-v2-vulture `9971071`, gf-v3-endgame `a37c41a`, gf-v4-all `42aec54` (notes dev/GO_FFA_NOTES.md). Testing vs 15 clones, 64 m each (baseline Go 7.61).
 gg3s10 5.40; gg3s11 submitted. FFA partial: lurk 7.56 (25 m) ≈ base 7.61; endgame 6.92 (24 m); ng 3.93; Python final 5.80 (64 m).
 gg3s11 5.71; gg3s12 submitted. FFA: lurk 7.14 (36 m), endgame 6.28 (36 m), ng 3.93 — all below base 7.61; giddy's FFA logic is hard to beat with simple rules.
+
+## ALERT 6:10 PM: we're 30th at 6.17; 32nd = 6.13 (Team-Xero); leader ImagineLosing 6.42. Line rising — other teams draw/tweak too. Salt mean 5.65 → only ~2%/draw > 6.2. Need a real practice-mean gain.
+gg3s12 5.35. FFA: lurk 7.38 (50), endgame 6.23 (48), ng 4.84 (45) vs base 7.61 → keep unmodified Go for final so far.
+Squad-sim calibration with fixed physics running (go-giddy3 / giddy4 / giddy2, 96 m each) to see if the practice sim now tracks real scores.
