@@ -73,6 +73,10 @@ type Brain struct {
 	explore      [2]float64
 	exploreUntil float64
 
+	patrolGoal   [2]float64
+	patrolUntil  float64
+	patrolActive bool
+
 	stuckSince   float64
 	unstuckUntil float64
 	unstuckDir   [2]float64
@@ -838,9 +842,22 @@ func (b *Brain) step(o *Obs, act *Action) {
 				}
 				mode = "home"
 			}
-		} else if b.P.Explore && !late && me.Cubes < b.cubeCap() && hpFrac > 0.7 && !danger {
-			mx, my = b.exploreMove(o)
-			mode = "explore"
+		} else if !late && !danger {
+			if b.pracOn && laser == nil && me.InZone && hpFrac > 0.5 && now-b.lastHurt > 2.5 {
+				mx, my = b.exploreMove(o)
+				mode = "loot:weapon-search"
+			} else if b.P.Explore && me.Cubes < b.cubeCap() && hpFrac > 0.7 {
+				mx, my = b.exploreMove(o)
+				mode = "explore"
+			}
+		}
+	}
+
+	if b.pracOn && (mode == "idle" || mode == "loot:weapon-search") && mx == 0 && my == 0 &&
+		!danger && !b.retreat && me.Grounded && me.InZone && !zoneShould && now-b.lastHurt > 2.5 {
+		if px, py := b.patrolMove(o, seen); px != 0 || py != 0 {
+			mx, my = px, py
+			mode = "patrol"
 		}
 	}
 
@@ -849,6 +866,10 @@ func (b *Brain) step(o *Obs, act *Action) {
 	}
 	if b.P.Dodge && mode != "unstuck" && mode != "escape" {
 		if dx, dy, lz := b.dodge(o); dx != 0 || dy != 0 {
+			if mode == "patrol" {
+				mx, my = 0, 0
+				mode = "dodge"
+			}
 			mx, my = mx*0.4+dx*0.9, my*0.4+dy*0.9
 			if l := hyp(mx, my); l > 1 {
 				mx, my = mx/l, my/l
@@ -1102,6 +1123,7 @@ func (b *Brain) step(o *Obs, act *Action) {
 	if len(me.Weapons) > 1 && me.Weapons[1] != nil {
 		slot1 = me.Weapons[1].Kind
 	}
+	var fallbackMortar *int
 	for i := range o.Pickups {
 		p := &o.Pickups[i]
 		if hyp(p.Pos[0]-x, p.Pos[1]-y) > b.Cfg.Loot.PickupRadius-0.3 || math.Abs(p.Pos[2]-zf) > 3.6 {
@@ -1111,6 +1133,12 @@ func (b *Brain) step(o *Obs, act *Action) {
 			continue
 		}
 		id := p.ID
+		if b.pracOn && b.P.NoMortar && slot1 == "" && p.Kind == "mortar" {
+			if fallbackMortar == nil {
+				fallbackMortar = &id
+			}
+			continue
+		}
 		act.Take = &id
 		if slot1 != "" && len(me.Weapons) > 0 && me.Weapons[0] != nil {
 			if slot1 == "laser" && me.Weapons[1].Charge > 0 {
@@ -1121,6 +1149,9 @@ func (b *Brain) step(o *Obs, act *Action) {
 			act.Drop = &one
 		}
 		break
+	}
+	if act.Take == nil && fallbackMortar != nil {
+		act.Take = fallbackMortar
 	}
 
 	act.Move = [2]float64{mx, my}
@@ -1183,7 +1214,10 @@ func (b *Brain) wantPickup(me *Self, kind string) bool {
 		return false
 	}
 	if kind == "mortar" && b.P.NoMortar {
-		return false
+		emptySecondary := len(me.Weapons) < 2 || me.Weapons[1] == nil
+		if !b.pracOn || !emptySecondary {
+			return false
+		}
 	}
 	rank := func(k string) int {
 		if b.P.LaserFirst && k == "laser" {
@@ -1797,6 +1831,97 @@ func (b *Brain) exploreMove(o *Obs) (float64, float64) {
 		return 0, 0
 	}
 	return b.travel(me, b.explore[0], b.explore[1])
+}
+
+func (b *Brain) patrolMove(o *Obs, seen []*Track) (float64, float64) {
+	const quietSpeed = 4.6
+	me := &o.Self
+	x, y := me.Pos[0], me.Pos[1]
+	z := &o.Zone
+	cx, cy := z.NextCenter[0], z.NextCenter[1]
+	dist := hyp(cx-x, cy-y)
+	inner := clamp(0.25*z.NextRadius, 4, 55)
+	w := b.W
+	if dist <= inner || me.Stats.WalkSpeed <= 0 || !w.Reachable(x, y) {
+		b.patrolActive, b.patrolUntil = false, 0
+		return 0, 0
+	}
+
+	live := b.curZone(z)
+	progress := func(px, py float64) float64 {
+		return dist - hyp(cx-px, cy-py)
+	}
+	safeLeg := func(px, py float64) bool {
+		if !w.InBounds(px, py) || !w.Reachable(px, py) ||
+			hyp(px-live.X, py-live.Y) > live.R || !w.LineWalkable(x, y, px, py) {
+			return false
+		}
+		samples := int(math.Ceil(hyp(px-x, py-y) / 4))
+		for _, t := range seen {
+			if hyp(t.Pos[0]-x, t.Pos[1]-y) > 230 {
+				continue
+			}
+			from := b.eye(t)
+			for i := 1; i <= samples; i++ {
+				f := float64(i) / float64(samples)
+				sx, sy := x+(px-x)*f, y+(py-y)*f
+				sz := w.WalkAt(sx, sy)
+				if w.Clear(from, Vec3{sx, sy, sz + me.Stats.Height*0.5}) ||
+					w.Clear(from, Vec3{sx, sy, sz + me.Stats.Height}) {
+					return false
+				}
+			}
+		}
+		return true
+	}
+	walk := func(px, py float64) (float64, float64) {
+		dx, dy := px-x, py-y
+		q := math.Min(1, quietSpeed/me.Stats.WalkSpeed) / hyp(dx, dy)
+		return dx * q, dy * q
+	}
+	if b.now < b.patrolUntil {
+		if !b.patrolActive {
+			return 0, 0
+		}
+		px, py := b.patrolGoal[0], b.patrolGoal[1]
+		if progress(px, py) > 1 && safeLeg(px, py) {
+			return walk(px, py)
+		}
+	}
+
+	// Use short, directly walkable legs. Check exposure along the leg as well as at the goal.
+	maxExposure := w.Exposure(x, y) + 0.14
+	best := math.Inf(-1)
+	var gx, gy float64
+	heading := math.Atan2(cy-y, cx-x)
+	for i := -4; i <= 4; i++ {
+		sn, cs := math.Sincos(heading + float64(i)*math.Pi/10)
+		for _, limit := range [...]float64{10, 24} {
+			d := math.Min(limit, dist-inner+4)
+			px, py := x+cs*d, y+sn*d
+			advance := progress(px, py)
+			if advance <= 1 || !safeLeg(px, py) {
+				continue
+			}
+			endExposure := w.Exposure(px, py)
+			midExposure := w.Exposure((x+px)*0.5, (y+py)*0.5)
+			if endExposure > maxExposure || midExposure > maxExposure {
+				continue
+			}
+			if score := advance - 32*endExposure - 16*midExposure; score > best {
+				best = score
+				gx, gy = px, py
+			}
+		}
+	}
+	b.patrolActive = !math.IsInf(best, -1)
+	if !b.patrolActive {
+		b.patrolUntil = b.now + 1
+		return 0, 0
+	}
+	b.patrolGoal = [2]float64{gx, gy}
+	b.patrolUntil = b.now + 4
+	return walk(gx, gy)
 }
 
 func (b *Brain) homeCost(o *Obs, px, py float64) float64 {
