@@ -2041,7 +2041,8 @@ func squadParams(p Params) Params {
 	p.LaserSeek = 240
 	p.LaserUp = true
 	p.Lethal = true
-	p.Finish = 20
+	p.Finish = 35
+	p.FightBoost = 60
 	p.Stick = 200
 	p.LowBonus = 200
 	p.LethalK = 0.7
