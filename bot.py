@@ -69,6 +69,8 @@ P = {
     "ffa_juke": False,    # FFA only: timed laser juke (laser_dodge) once FFA is latched
     "lurk_t": 75.0,       # ffa_lurk lasts until this match time...
     "lurk_alive": 9,      # ...or until this many mechs are left
+    "practice_kit": True,  # prioritize usable upgrades and conserve charged shots
+    "practice_loot": True,  # prefer safe, short detours during combat
     "salt": 2,            # mixed into the RNG seed (strafe timing etc.); the strategy itself is unchanged
 }
 # offline tuning only: the simulator may override knobs through MF_P (never set in matches)
@@ -535,7 +537,7 @@ class Brain:
         return threat
 
     # ----------------------------------------------------------------- upgrades
-    def choose_upgrade(self, offer):
+    def choose_upgrade(self, offer, held, practice):
         ch = offer.get("choices") or []
         best, bi = 1e9, 0
         for i, c in enumerate(ch):
@@ -543,6 +545,10 @@ class Brain:
             rank = UPGRADE_RANK_ECON if (P["econ"] or P["upg"] == "econ") else (
                 UPGRADE_RANK_INV if P["upg"] == "inv" else UPGRADE_RANK)
             r = rank.index(cid) if cid in rank else 50
+            if practice and P["practice_kit"]:
+                family = (cid or "").partition("_")[0]
+                if family in ("laser", "lightning", "mortar") and family not in held:
+                    r += 100
             if r < best:
                 best, bi = r, i
         return bi
@@ -583,15 +589,14 @@ class Brain:
             except Exception:
                 self.my_comp = -1
         act = {}
-        offer = obs.get("offer")
-        if offer:
-            act["pick"] = self.choose_upgrade(offer)
-
         slots = list(me.get("weapons") or [None, None])
         while len(slots) < 2:
             slots.append(None)
         kinds = [w.get("kind") if w else None for w in slots]
-        held = set(k for k in kinds if k)
+        held = {kind for kind in kinds if kind}
+        offer = obs.get("offer")
+        if offer:
+            act["pick"] = self.choose_upgrade(offer, held, not self.ffa)
         muzzle_h = float(stats.get("muzzle_height", 7.0))
         eye_h = float(stats.get("eye_height", 8.0))
         turn_rate = float(stats.get("turn_rate", 4.0))
@@ -772,6 +777,16 @@ class Brain:
             grange = float(gst.get("range", 230.0))
             # laser about to fire -> aim hitscan, else lead for the gun
             hitscan = laser_w is not None and laser_charge >= laser_full - 0.12 and los_ok
+            if not self.ffa and P["practice_kit"] and laser_w is not None and kind == "mech" and los_ok:
+                # A partial release needs hitscan aim too. Allow for the target's
+                # armor rather than assuming all nominal damage reaches it.
+                min_charge = float(lst.get("min_charge", 0.15))
+                min_fraction = float(lst.get("min_frac", 0.35))
+                fraction = min_fraction + (1 - min_fraction) * min(1.0, laser_charge / laser_full)
+                damage = fraction * float(lst.get("damage", 315)) * dmgmul
+                target_hp = shoot.get("hp")
+                if laser_charge >= min_charge and target_hp is not None and damage * 0.8 >= target_hp:
+                    hitscan = True
             if gun_w is None:
                 hitscan = True
             lat = 0.075 if P["selfcomp"] else 0.05
@@ -817,7 +832,9 @@ class Brain:
             if los_ok and not busy_fight:
                 # gun
                 if gun_w is not None and d3 < grange * 0.98 and gun_ok:
-                    if (gun_w.get("reload") or 0) <= 0 and (gun_w.get("ammo") is None or gun_w.get("ammo", 1) > 0):
+                    if ((gun_w.get("reload") or 0) <= 0
+                            and (gun_w.get("ammo") is None or gun_w.get("ammo", 1) > 0)
+                            and (not P["practice_kit"] or self.ffa or not hitscan)):
                         fire[gun_slot] = True
                 # lightning: auto-targets nearest in its cone
                 if lit_w is not None:
@@ -842,6 +859,8 @@ class Brain:
                     ehp = shoot.get("hp") if kind != "crate" else shoot.get("hp", 300)
                     kill_now = ehp is not None and laser_charge >= mn and cur_dmg >= float(ehp) and aligned_now
                     overtime = laser_charge >= laser_full + laser_hold - 0.35
+                    if not self.ffa and P["practice_kit"]:
+                        kill_now = kill_now and hitscan
                     if los_ok and in_range and ((full and aligned) or kill_now):
                         fire[laser_slot] = False  # release -> fires
                     elif overtime:
@@ -1355,8 +1374,15 @@ class Brain:
     def fight_loot(self, obs, t, px, py, pz, hpf, kinds, target):
         """A cube within 30 m, a better weapon within 200 m, or a supply drop worth taking now."""
         cx, cy, cr = self.safe_circle
+        short_detours = P["practice_loot"] and not self.ffa and target is not None
+        if short_detours and float((obs.get("self") or {}).get("cubes", 0)) < self.stat_cap and hpf > 0.35:
+            # Earning the first few cubes snowballs the next duel. Recover a recent
+            # kill's cubes only when the route is short and the next hunter is distant.
+            salvage = self.kill_loot(t, px, py, [target])
+            if salvage is not None and hyp(salvage[0] - px, salvage[1] - py) < 24.0:
+                return salvage[0], salvage[1], "salvage"
         if hpf > 0.3:
-            best, bd = None, 30.0
+            best, bd = None, (13.0 if short_detours else 30.0)
             for cid, (pos, seen) in self.cubes_mem.items():
                 if t - seen > 0.01 or not self.reachable(pos[0], pos[1]):
                     continue
@@ -1365,7 +1391,7 @@ class Brain:
                     best, bd = (pos[0], pos[1], "cube"), d
             if best is not None:
                 return best
-        best, bd = None, 200.0
+        best, bd = None, (75.0 if short_detours else 200.0)
         for pid, (kind, pos, seen) in self.pickups.items():
             if self.take_block.get(pid, -1) > t or self.pickup_gain(kind, kinds, False) is None:
                 continue
@@ -1564,6 +1590,11 @@ class Brain:
                     want = 70.0
                 if len(visible_threats) >= 2 or ("lightning" in ew and not has_lit):
                     want = max(want, 70.0)
+            if (not self.ffa and has_lit and energy > 35.0 and hpf >= 0.5
+                    and len(visible_threats) == 1 and "laser" in ew and "lightning" not in ew):
+                # Disrupt an isolated laser with lightning instead of waiting
+                # outside our second weapon's range.
+                want = float((self.W.get("lightning") or {}).get("range", 45.0)) * 0.78
             ehp_abs = e.get("hp")
             if ehp_abs is not None and float(ehp_abs) < 300.0 and hpf > 0.3:
                 want = min(want, 40.0)  # finish it
