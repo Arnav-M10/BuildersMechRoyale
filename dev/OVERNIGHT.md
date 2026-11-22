@@ -364,3 +364,6 @@ STRATEGY SHIFT: real server (96 random seeds, sd≈0.19/draw) is now the best ev
 Clean sim (real map): go-619 practice 8.17/96 (timeouts ~1/match; sim house bots weaker than real but comparisons valid). p-dodge (35fd816) queued on real server (builders-4). fx_corner (2c68694, Sol) check PASS → next real draw; clean sim queued.
 builders-4: p-dodge 5.30 (< our 5.63) → dropped. Board: we're 29th, 32nd 5.56. fx_retreat (dee2026) + fx_weapon (8885ef2) check PASS. fx_corner submitted.
 builders-4: fx_corner 5.48. fx_retreat submitted. Board: we're 32nd. New-top-team repos not public. Two Sol sessions: (A) scan 14 freshly-updated repos + 2 variants (sa, sb); (B) creative squad-exploit tactics → 2 variants (sc, sd).
+Board 12:55 AM: we're 36th; 32nd BITS and Peaces 5.65.
+Clean sim (real map) matches reality: base 8.17, p_dodge 6.48 (real 5.30), p_8 8.01 → sim is a valid fast screen now.
+Sol variants built: sa 4d9d7f1 (micro-juke strafe + laser-window, from MarwanMoh11 who reports +0.36/192), sb e12b8df (explore for weapons when idle w/o laser), sc 0a6869c, sd f5906a4 (creative squad tactics). Stopped FFA clean queue by PID to free CPU. Screening fx_retreat/fx_weapon/sa/sb/sc/sd: 64 paired matches vs base (seed 61000) → clean/screen.txt.
