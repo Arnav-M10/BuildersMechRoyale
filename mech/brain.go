@@ -64,6 +64,10 @@ type Brain struct {
 	lootID    int
 	lootSince float64
 
+	practicePickupHurtUntil float64
+	practicePickupPrevHP   float64
+	practicePickupSampled  bool
+
 	hold      circle
 	holdStart float64
 
@@ -334,6 +338,8 @@ func (b *Brain) observe(o *Obs) {
 	}
 	if on := b.base.Practice && !b.notPractice && now > 20; on != b.pracOn {
 		b.pracOn = on
+		b.practicePickupHurtUntil = 0
+		b.practicePickupSampled = false
 		b.P = b.base
 		if on {
 			b.P = squadParams(b.base)
@@ -347,6 +353,20 @@ func (b *Brain) observe(o *Obs) {
 		} else if b.pracOn {
 			b.P = squadParams(b.base)
 		}
+	}
+
+	if b.pracOn {
+		if b.practicePickupSampled && me.HP < b.practicePickupPrevHP {
+			b.practicePickupHurtUntil = now + 2.5
+		}
+		for _, e := range o.Events {
+			if e.Type == "damaged" {
+				b.practicePickupHurtUntil = now + 2.5
+				break
+			}
+		}
+		b.practicePickupPrevHP = me.HP
+		b.practicePickupSampled = true
 	}
 
 	z := &o.Zone
@@ -678,6 +698,7 @@ func (b *Brain) step(o *Obs, act *Action) {
 	mode := "idle"
 	var farm *Track
 	var farmPos *Vec3
+	var secondary *lootChoice
 
 	zgx, zgy := b.zoneGoal(z, x, y)
 	zdist := hyp(zgx-x, zgy-y)
@@ -733,6 +754,14 @@ func (b *Brain) step(o *Obs, act *Action) {
 		boost = me.Energy > 30 && (mx != 0 || my != 0)
 		mode = "evade"
 	case foe != nil:
+		if b.openingSecondary(o) && !b.retreat {
+			secondary = b.chooseSecondary(o, true)
+			if secondary != nil {
+				mx, my = secondary.move[0], secondary.move[1]
+				mode = "loot:pickup"
+				break
+			}
+		}
 
 		ready := gun != nil && gun.Ammo > 0 && gun.Reload <= 0.25 && foe.Dist <= gun.Stats.Range-10
 		hot := laser != nil && laser.Charge >= laser.Stats.Charge-0.3 && foe.Dist <= laser.Stats.Range-5
@@ -799,8 +828,11 @@ func (b *Brain) step(o *Obs, act *Action) {
 		lc := b.chooseLoot(o, hpFrac, danger)
 		if lc != nil {
 			mode = "loot:" + lc.kind
-			switch lc.kind {
-			case "npc":
+			switch {
+			case lc.move != nil:
+				secondary = lc
+				mx, my = lc.move[0], lc.move[1]
+			case lc.kind == "npc":
 				t := b.npcs[lc.id]
 				if t != nil && now-t.Seen < 1 && t.LOS && t.Dist < 75 {
 					farm = t
@@ -808,7 +840,7 @@ func (b *Brain) step(o *Obs, act *Action) {
 				} else {
 					mx, my = b.travel(me, lc.pos[0], lc.pos[1])
 				}
-			case "crate":
+			case lc.kind == "crate":
 				d := hyp(lc.pos[0]-x, lc.pos[1]-y)
 				cp := Vec3{lc.pos[0], lc.pos[1], lc.pos[2] + b.Cfg.Crates.Height*0.5}
 				if d < 50 && b.W.Clear(Vec3{x, y, zf + st.MuzzleHeight}, cp) {
@@ -1102,7 +1134,20 @@ func (b *Brain) step(o *Obs, act *Action) {
 	if len(me.Weapons) > 1 && me.Weapons[1] != nil {
 		slot1 = me.Weapons[1].Kind
 	}
+	if secondary != nil {
+		for _, p := range o.Pickups {
+			if p.ID == secondary.id && b.wantPickup(me, p.Kind) && hyp(p.Pos[0]-x, p.Pos[1]-y) <= b.Cfg.Loot.PickupRadius-0.3 &&
+				math.Abs(p.Pos[2]-zf) <= 3.6 {
+				id := p.ID
+				act.Take = &id
+				break
+			}
+		}
+	}
 	for i := range o.Pickups {
+		if act.Take != nil {
+			break
+		}
 		p := &o.Pickups[i]
 		if hyp(p.Pos[0]-x, p.Pos[1]-y) > b.Cfg.Loot.PickupRadius-0.3 || math.Abs(p.Pos[2]-zf) > 3.6 {
 			continue
@@ -1586,6 +1631,151 @@ type lootChoice struct {
 	id    int
 	pos   Vec3
 	value float64
+	move  *[2]float64
+}
+
+func (b *Brain) openingSecondary(o *Obs) bool {
+	ws := o.Self.Weapons
+	return b.pracOn && o.T < 90 && o.Alive > 3 && o.Zone.NextRadius > 70 &&
+		(len(ws) < 2 || ws[1] == nil)
+}
+
+func (b *Brain) chooseSecondary(o *Obs, short bool) *lootChoice {
+	me, w := &o.Self, b.W
+	x, y := me.Pos[0], me.Pos[1]
+	speed := me.Stats.WalkSpeed
+	if b.now < b.practicePickupHurtUntil || speed <= 0 || !me.InZone {
+		return nil
+	}
+	maxRoute := math.Min(260, math.Max(b.P.LootRadius, b.P.LaserSeek))
+	if short {
+		maxRoute = math.Min(maxRoute, math.Min(45, 4*speed))
+	}
+	const clearance = 75
+	var contacts [][2]float64
+	for _, t := range b.tracks {
+		age := b.now - t.Seen
+		if b.now-t.HitMe < 2.5 {
+			return nil
+		}
+		if age >= 2 {
+			continue
+		}
+		tx, ty := t.Pos[0]+t.Vel[0]*age, t.Pos[1]+t.Vel[1]*age
+		dx, dy := tx-x, ty-y
+		d := hyp(dx, dy)
+		if d < clearance {
+			return nil
+		}
+		closing := -(dx*(t.Vel[0]-me.Vel[0]) + dy*(t.Vel[1]-me.Vel[1])) / d
+		aimed := math.Abs(angDiff(t.Aim[0], math.Atan2(-dy, -dx))) < 0.22
+		if (closing > 3 && d < 200) || (aimed && (d < 140 || (t.Charging && d < 200))) {
+			return nil
+		}
+		contacts = append(contacts, [2]float64{tx, ty})
+	}
+	segmentSafe := func(ax, ay, bx, by float64) bool {
+		dx, dy := bx-ax, by-ay
+		lengthSquared := dx*dx + dy*dy
+		for _, t := range contacts {
+			f := 0.0
+			if lengthSquared > 0 {
+				f = clamp(((t[0]-ax)*dx+(t[1]-ay)*dy)/lengthSquared, 0, 1)
+			}
+			if hyp(t[0]-ax-dx*f, t[1]-ay-dy*f) < clearance {
+				return false
+			}
+		}
+		return true
+	}
+
+	var candidates []*known
+	for _, p := range b.pickups {
+		if (p.Kind == "laser" || p.Kind == "lightning") && b.wantPickup(me, p.Kind) &&
+			b.now-p.Seen <= 15 && b.bad[p.ID] <= b.now && hyp(p.Pos[0]-x, p.Pos[1]-y) <= maxRoute {
+			candidates = append(candidates, p)
+		}
+	}
+	sort.Slice(candidates, func(i, j int) bool {
+		a, c := candidates[i], candidates[j]
+		da, dc := hyp(a.Pos[0]-x, a.Pos[1]-y), hyp(c.Pos[0]-x, c.Pos[1]-y)
+		if da != dc {
+			return da < dc
+		}
+		if a.Kind != c.Kind {
+			return a.Kind == "laser"
+		}
+		return a.ID < c.ID
+	})
+	cur := b.curZone(&o.Zone)
+	inside := func(c circle, px, py float64) bool {
+		return hyp(px-c.X, py-c.Y) <= c.R-6
+	}
+	if !inside(cur, x, y) {
+		return nil
+	}
+	var best *lootChoice
+	bestDistance := maxRoute
+	for _, p := range candidates {
+		gx, gy := p.Pos[0], p.Pos[1]
+		if hyp(gx-x, gy-y) > bestDistance {
+			break
+		}
+		if !inside(cur, gx, gy) || !w.Free(gx, gy) || p.Pos[2]-w.GroundAt(gx, gy) > 3.2 {
+			continue
+		}
+		var route [][2]float64
+		if !w.LineWalkable(x, y, gx, gy) || !segmentSafe(x, y, gx, gy) {
+			cells, reached := w.Path(x, y, gx, gy, 400)
+			if !reached {
+				continue
+			}
+			for _, cell := range cells {
+				px, py := w.CellPos(int(cell))
+				route = append(route, [2]float64{px, py})
+			}
+		}
+		route = append(route, [2]float64{gx, gy})
+		distance, ax, ay, safe := 0.0, x, y, true
+		for _, pt := range route {
+			distance += hyp(pt[0]-ax, pt[1]-ay)
+			if distance > bestDistance || !inside(cur, pt[0], pt[1]) || !segmentSafe(ax, ay, pt[0], pt[1]) {
+				safe = false
+				break
+			}
+			ax, ay = pt[0], pt[1]
+		}
+		if !safe || (best != nil && distance == bestDistance) {
+			continue
+		}
+		future := b.zoneAt(&o.Zone, b.now+distance/speed+5)
+		safe = inside(future, x, y)
+		for _, pt := range route {
+			safe = safe && inside(future, pt[0], pt[1])
+		}
+		if !safe {
+			continue
+		}
+		move := [2]float64{}
+		canTake := p.Seen == b.now && hyp(gx-x, gy-y) <= b.Cfg.Loot.PickupRadius-0.3 &&
+			math.Abs(p.Pos[2]-me.Pos[2]) <= 3.6
+		if !canTake {
+			for i := len(route) - 1; i >= 0; i-- {
+				px, py := route[i][0], route[i][1]
+				d := hyp(px-x, py-y)
+				if d > 0.2 && w.LineWalkable(x, y, px, py) && segmentSafe(x, y, px, py) {
+					move = [2]float64{(px - x) / d, (py - y) / d}
+					break
+				}
+			}
+			if move == [2]float64{} {
+				continue
+			}
+		}
+		bestDistance = distance
+		best = &lootChoice{kind: "pickup", id: p.ID, pos: p.Pos, move: &move}
+	}
+	return best
 }
 
 func (b *Brain) chooseLoot(o *Obs, hpFrac float64, danger bool) *lootChoice {
@@ -1594,6 +1784,12 @@ func (b *Brain) chooseLoot(o *Obs, hpFrac float64, danger bool) *lootChoice {
 	z := &o.Zone
 	now := b.now
 	cur := b.curZone(z)
+	openingSecondary := b.openingSecondary(o)
+	if openingSecondary && !b.retreat {
+		if secondary := b.chooseSecondary(o, false); secondary != nil {
+			return secondary
+		}
+	}
 	var best *lootChoice
 	bestU := 0.0
 	econ := b.P.Econ
@@ -1631,7 +1827,7 @@ func (b *Brain) chooseLoot(o *Obs, hpFrac float64, danger bool) *lootChoice {
 		}
 		if u > bestU {
 			bestU = u
-			best = &lootChoice{kind, id, pos, value}
+			best = &lootChoice{kind: kind, id: id, pos: pos, value: value}
 		}
 	}
 	if econ {
@@ -1656,6 +1852,9 @@ func (b *Brain) chooseLoot(o *Obs, hpFrac float64, danger bool) *lootChoice {
 			inner(kind, id, pos, value)
 		}
 		for _, p := range b.pickups {
+			if openingSecondary && (p.Kind == "laser" || p.Kind == "lightning") {
+				continue
+			}
 			if !b.wantPickup(me, p.Kind) || hurt {
 				continue
 			}
@@ -1708,6 +1907,9 @@ func (b *Brain) chooseLoot(o *Obs, hpFrac float64, danger bool) *lootChoice {
 		return best
 	}
 	for _, p := range b.pickups {
+		if openingSecondary && (p.Kind == "laser" || p.Kind == "lightning") {
+			continue
+		}
 		rad := b.P.LootRadius
 		seek := p.Kind == "laser" && b.P.LaserSeek > rad
 		if seek {
