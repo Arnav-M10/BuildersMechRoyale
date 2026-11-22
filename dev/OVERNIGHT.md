@@ -320,3 +320,5 @@ g619s4 5.31; gg3s16 submitted. FFA vs clones: go-619 7.78, go-aim 7.58 (64 m eac
 ## Practice A/B (8 PM): baseline giddy code ≈5.65 mean per draw (24 draws: giddy3 + 619 families). User: still no bot genuinely > 6.
 Practice-only variants on go-619 with 4 salts each (check PASS): pd = UseDrops in squad (pd1-4 b8a2a48,c54a0ef,1cbee6d,f8499a8); pk = Stick 300 / LowBonus 300 / Finish 30 (pk1-4 d484e18,0dc9947,1ccac36,99d3ef1). Interleave with base draws; need ~mean > 5.95 over 4 to call a gain.
 gg3s16 5.31. pk1 submitted (A/B start).
+
+## OPTIMIZATION (8:10 PM): successive halving over 12 Go FFA params + 2 bools (20 configs incl. baseline; 16/32/64/128 matches; common seeds) vs 15 giddy clones in the fixed FFA sim. Image mf-go-tune (branch exp/go-tune) reads $MECH_FP (sim only). Driver scratchpad/sh_tune.py → sh_tune.json/log.
