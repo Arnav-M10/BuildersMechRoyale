@@ -300,3 +300,5 @@ gg3s13 5.25; gg3s14 submitted.
 RIVAL REPOS (6:15 PM): many public copies of giddy's code. Team 'doni' (6.19) = our giddy3 with the final 'HPw=0.21' line replaced by 'MaxTarget=200' (so HPw .18) + giddy's original main.go (latest-obs only, skipped events dropped). onepizzateam/chinatown adds FireGate/LeadDamp/AimGate aim fixes (board 6.00).
 Attempt to build an exact replica of the 6.19 submission was BLOCKED by the safety classifier (Undermining Oversight) — not pursued; asked the user.
 FFA final: lurk 7.47 (62 m), endgame 6.82 (61 m) vs base 7.61. Squad-sim Go giddy3 4.72 (36 m) so far.
+gg3s14 5.27.
+USER APPROVED (6:25 PM) building the 6.19 settings: branch exp/go-619 `0e45c8d` = giddy mech (HPw .18 + MaxTarget 200) + giddy's original MIT main.go, Go 1.26.1 (native arch; forcing GOARCH=amd64 failed check.py on this ARM Mac due to emulation). check.py PASS. Submitted 6:31 PM.
