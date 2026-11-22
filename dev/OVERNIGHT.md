@@ -361,3 +361,4 @@ Rerunning cleanly from /Users/arnav/Documents/BuildersHackathon/simruns/f1 (map 
 g619s8 5.65 (builders-3).
 Rescored (builders-4): we're 24th at 5.63; leader Ahmad Suliman 6.28; 32nd MalwareSurgeon 5.53 (board still populating).
 STRATEGY SHIFT: real server (96 random seeds, sd≈0.19/draw) is now the best evaluator. Sol implementing 3 practice-only death-cause fixes (fx_corner, fx_retreat, fx_weapon) → check.py → 2 real draws each → stack winners. Always pick the highest builders-4 score.
+Clean sim (real map): go-619 practice 8.17/96 (timeouts ~1/match; sim house bots weaker than real but comparisons valid). p-dodge (35fd816) queued on real server (builders-4). fx_corner (2c68694, Sol) check PASS → next real draw; clean sim queued.
