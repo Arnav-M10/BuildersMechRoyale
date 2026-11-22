@@ -80,6 +80,7 @@ type Brain struct {
 	lastAim      [2]float64
 	laserHeld    float64
 	laserLaneAt  float64
+	laserLaneID  int
 	laserLaneAim [2]float64
 	Mode         string
 	Panics       int
@@ -900,7 +901,6 @@ func (b *Brain) step(o *Obs, act *Action) {
 	shootable := false
 	isMech := false
 	defend := false
-	laserLane := false
 	laserCanWait := b.pracOn && me.InZone
 	switch mode {
 	case "zone", "zone-walk", "escape", "unstuck", "dodge", "cover", "cornered", "flee":
@@ -1011,15 +1011,8 @@ func (b *Brain) step(o *Obs, act *Action) {
 					act.Fire[i] = true
 				}
 			case "laser":
-				if !isMech || dist > w.Stats.Range*0.97 {
+				if b.pracOn || !isMech || dist > w.Stats.Range*0.97 {
 					break
-				}
-				if b.pracOn {
-					laserLane = hp >= st.MinPitch && hp <= st.MaxPitch && b.W.Clear(muzzle, dp)
-					if !laserLane {
-						break
-					}
-					b.laserLaneAt, b.laserLaneAim = now, [2]float64{hy, hp}
 				}
 				full := w.Stats.Charge
 				if b.P.Lethal && w.Charge >= w.Stats.MinCharge && w.Charge < full-0.051 {
@@ -1088,19 +1081,17 @@ func (b *Brain) step(o *Obs, act *Action) {
 		}
 	}
 
-	// A missing target clears fire in the base loop, which releases a charged laser.
-	// Carry it through a brief loss of the line, then release to regain mobility.
-	if laserCanWait && !laserLane && b.laserLaneAt > 0 && now-b.laserLaneAt <= 0.25 {
-		decisionS := 0.1
-		if b.Cfg.Match.TickHz > 0 && b.Cfg.Match.DecideEvery > 0 {
-			decisionS = float64(b.Cfg.Match.DecideEvery) / b.Cfg.Match.TickHz
-		}
-		if i, w := hasWeapon(me.Weapons, "laser"); w != nil && i < len(act.Fire) && w.Charge > 0 &&
-			w.Charge+decisionS+0.01 < w.Stats.Charge+w.Stats.HoldS {
-			act.Fire[i] = true
-			if !haveAim || isMech {
-				aim, haveAim = b.laserLaneAim, true
+	if b.pracOn {
+		if command, ownsAim := b.practiceLaser(me, act, target, seen, laserCanWait, !haveAim || isMech); ownsAim {
+			if i, w := hasWeapon(me.Weapons, "gun"); w != nil && i < len(act.Fire) && act.Fire[i] {
+				// When the laser turns the torso away from the gun solution, save the round.
+				d := math.Max(1, hyp(tp[0]-x, tp[1]-y))
+				if math.Abs(angDiff(command[0], aim[0])) > math.Atan2(tr*0.75, d) ||
+					math.Abs(command[1]-aim[1]) > math.Atan2(th*0.4, d) {
+					act.Fire[i] = false
+				}
 			}
+			aim, haveAim = command, true
 		}
 	}
 
@@ -1175,6 +1166,125 @@ func (b *Brain) step(o *Obs, act *Action) {
 	act.Move = [2]float64{mx, my}
 	act.Boost = boost && (mx != 0 || my != 0)
 	b.Mode = mode
+}
+
+func (b *Brain) practiceLaser(me *Self, act *Action, selected *Track, seen []*Track, canWait, useGraceAim bool) ([2]float64, bool) {
+	i, w := hasWeapon(me.Weapons, "laser")
+	if w == nil || i >= len(act.Fire) {
+		return [2]float64{}, false
+	}
+	tickS := 0.05
+	if b.Cfg.Match.TickHz > 0 {
+		tickS = 1 / b.Cfg.Match.TickHz
+	}
+	decisionS := 2 * tickS
+	if b.Cfg.Match.DecideEvery > 0 {
+		decisionS = float64(b.Cfg.Match.DecideEvery) * tickS
+	}
+	if w.Charge <= 0 && w.Cooldown > decisionS+1e-8 {
+		return [2]float64{}, false
+	}
+
+	muzzle := Vec3{me.Pos[0] + me.Vel[0]*tickS, me.Pos[1] + me.Vel[1]*tickS, me.Pos[2] + me.Stats.MuzzleHeight + me.Vel[2]*tickS}
+	var target *Track
+	var aim, tol [2]float64
+	try := func(t *Track) bool {
+		if t == nil || t.Seen != b.now || !t.LOS || t.Dist > w.Stats.Range*0.97 {
+			return false
+		}
+		command, tolerance, ok := b.practiceLaserLane(me, t, muzzle, tickS)
+		if ok {
+			target, aim, tol = t, command, tolerance
+		}
+		return ok
+	}
+
+	// Keep the weapon on its last clear target while it has a charge. A
+	// blocked or dead target can hand the charge off to a clear one.
+	if canWait && w.Charge > 0 && b.laserLaneAt > 0 && b.now-b.laserLaneAt <= 0.25 {
+		try(b.tracks[b.laserLaneID])
+	}
+	if target == nil {
+		try(selected)
+	}
+	if target == nil && w.Charge >= w.Stats.Charge*0.45 && w.Charge > 0 && canWait {
+		// Look for an engaged alternative only to salvage a charge already paid for.
+		best := math.Inf(1)
+		for _, t := range seen {
+			if t == selected || !t.Engage || t.Seen != b.now || !t.LOS || t.Dist > w.Stats.Range*0.97 {
+				continue
+			}
+			score := math.Abs(angDiff(math.Atan2(t.Pos[1]-me.Pos[1], t.Pos[0]-me.Pos[0]), me.Aim[0]))
+			if (score < best || (score == best && target != nil && t.ID < target.ID)) && try(t) {
+				best = score
+			}
+		}
+	}
+
+	if target == nil {
+		if canWait && w.Charge > 0 && b.laserLaneAt > 0 && b.now-b.laserLaneAt <= 0.25 &&
+			w.Charge+decisionS+0.01 < w.Stats.Charge+w.Stats.HoldS {
+			act.Fire[i] = true
+			return b.laserLaneAim, useGraceAim
+		}
+		return [2]float64{}, false
+	}
+	b.laserLaneAt, b.laserLaneAim, b.laserLaneID = b.now, aim, target.ID
+
+	full := w.Stats.Charge
+	// The server turns the torso before releasing on the first physics tick.
+	// Check the resulting ray when some turn error remains.
+	actual := [2]float64{
+		me.Aim[0] + clamp(angDiff(aim[0], me.Aim[0]), -me.Stats.TurnRate*tickS, me.Stats.TurnRate*tickS),
+		me.Aim[1] + clamp(aim[1]-me.Aim[1], -me.Stats.PitchRate*tickS, me.Stats.PitchRate*tickS),
+	}
+	aligned := math.Abs(angDiff(aim[0], actual[0])) < tol[0] && math.Abs(aim[1]-actual[1]) < tol[1]
+	if aligned && actual != aim {
+		dist := hyp(target.Pos[0]+target.Vel[0]*tickS-muzzle[0], target.Pos[1]+target.Vel[1]*tickS-muzzle[1])
+		end := Vec3{muzzle[0] + dist*math.Cos(actual[0]), muzzle[1] + dist*math.Sin(actual[0]), muzzle[2] + dist*math.Tan(actual[1])}
+		aligned = b.W.Clear(muzzle, end)
+	}
+	if b.P.Lethal && full > 0 && aligned && target.HP > 0 && w.Charge >= w.Stats.MinCharge && w.Charge < full-0.051 {
+		dmg := w.Stats.Damage * (w.Stats.MinFrac + (1-w.Stats.MinFrac)*w.Charge/full) *
+			(1 + b.Cfg.Cubes.DamagePerCube*float64(min(me.Cubes, b.Cfg.Cubes.StatCap)))
+		if holds(target.Weapons, "mortar") {
+			dmg *= 1 + w.Stats.Cookoff
+		}
+		if b.P.Backstab > 0 && b.showsBack(target, me.Pos[0], me.Pos[1]) {
+			dmg *= b.rearMult()
+		}
+		lk := 0.8
+		if b.P.LethalK > 0 {
+			lk = b.P.LethalK
+		}
+		if dmg*lk >= target.HP {
+			return aim, true
+		}
+	}
+	if w.Charge < full-0.051 {
+		act.Fire[i] = true
+		return aim, w.Charge > full*0.45
+	}
+	act.Fire[i] = !aligned
+	return aim, true
+}
+
+func (b *Brain) practiceLaserLane(me *Self, target *Track, muzzle Vec3, tickS float64) ([2]float64, [2]float64, bool) {
+	scale := b.scaleOf(target.Cubes)
+	radius, height := b.Cfg.Mech.Radius*scale, b.Cfg.Mech.Height*scale
+	for _, frac := range [...]float64{0.5, 0.85} {
+		point := Vec3{target.Pos[0] + target.Vel[0]*tickS, target.Pos[1] + target.Vel[1]*tickS, target.Pos[2] + target.Vel[2]*tickS + height*frac}
+		dx, dy, dz := point[0]-muzzle[0], point[1]-muzzle[1], point[2]-muzzle[2]
+		d := hyp(dx, dy)
+		pitch := math.Atan2(dz, d)
+		if pitch < me.Stats.MinPitch || pitch > me.Stats.MaxPitch || !b.W.Clear(muzzle, point) {
+			continue
+		}
+		aim := [2]float64{math.Atan2(dy, dx), pitch}
+		tol := [2]float64{math.Atan2(radius*0.675, math.Max(1, d)), math.Atan2(height*math.Min(0.4, 1-frac), math.Max(1, d))}
+		return aim, tol, true
+	}
+	return [2]float64{}, [2]float64{}, false
 }
 
 func (b *Brain) escape(me *Self, mx, my *float64, boost, jump *bool) bool {
