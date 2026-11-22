@@ -307,3 +307,7 @@ FFA vs clones FINAL (64 m each, base 7.61): lurk 7.67, endgame 7.03, all 6.67, v
 Squad-sim calibration (96 m): giddy4 5.74 / giddy3 5.30 / giddy2 5.23 vs real 5.67 / 5.65 / 5.25 → weak; sim can't separate small practice gains.
 g619s1 5.38. Board 6:54 PM: we're 30th at 6.17; 32nd 6.13; leader tigerbyte 6.44. Plan: continuous salt draws (≈2-3%/draw >6.3).
 g619s2 5.75; g619s3 submitted. go-619 family: 6.08, 5.38, 5.75.
+
+## INTEL (7:15 PM): cloned 244 public Mech Royale repos into scratchpad/allbots (read-only; INDEX.tsv).
+mh-anwar's docs/knowledge/topteams.md: 'Top 16 Showdown' — the 16 best practice bots play 6 FFA exhibition matches every hour (final format), public spectator stream wss://watch.joinbuilders.org/live. Findings: practice board does NOT predict FFA (kyoto-max #1 practice placed 16th/11th); giddygiddyboy (our entry's code) most consistent (4th, 1st); FFA ~280 s, no zone deaths, half dead by ~120 s; creep <5 m/s, gun+laser meta, take winnable fights then break off and regen, defensive upgrades first, 60-100 m spacing.
+waiprotein (6.19) fork adds FFA-detection (BeamFFA, FFAMin, PracAt) and endgame hold-out ideas.
