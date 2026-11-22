@@ -323,3 +323,7 @@ gg3s16 5.31. pk1 submitted (A/B start).
 
 ## OPTIMIZATION (8:10 PM): successive halving over 12 Go FFA params + 2 bools (20 configs incl. baseline; 16/32/64/128 matches; common seeds) vs 15 giddy clones in the fixed FFA sim. Image mf-go-tune (branch exp/go-tune) reads $MECH_FP (sim only). Driver scratchpad/sh_tune.py → sh_tune.json/log.
 pk1 5.48; pd1 submitted. FFA: ffa-ls 7.10 (61 m), ffa-nano 7.03 (60 m) → no gain vs base 7.6-7.8.
+
+## QUALIFY RISK (8:25 PM): we're 31st. Baseline draws (24): mean 5.56, sd ~0.25 → ~0.5%/draw ≥ 6.2.
+Top teams (tigerbyte 6.44, ImagineLosing 6.42, IT_Professionals 6.38) have no public code; other teams' notes only describe their FFA showdown play. Tanish-Dhankhar/hope claims ~6.38 (no license; ideas only: lightning > laser, mortar over cover, loot inside next zone away from hunters, disengage via buildings).
+New practice variant pl (lightning-first, practice only) pl1-4 (204b304,5faf6e0,f447bb2,22485ef). pd1 5.69. pl1 submitted. check.py FAIL earlier was host load (go-619 also slow at load 14; both PASS on rerun).
