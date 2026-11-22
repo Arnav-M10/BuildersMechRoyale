@@ -350,3 +350,5 @@ Sol STRATEGY.md (dev/STRATEGY_SOL.md) adopted: alternate B (go-619 salts) / G (g
 g619s7 5.31; gg3s17 submitted. Codex pipeline running (base, p_8, p_1, p_10, f_18, f_7); p_dodge (Sol) built + check PASS; paired practice sim running (seed 41000).
 
 ## DIAGNOSE-FIRST (11:25 PM, after user feedback 'stuck in a cycle'): built exp/go-trace (per-0.5 s stderr trace: mode/hp/visible/hit-by/kills/alive/cubes/weapon/zone/retreat/pos); running 48 practice sim matches (seed 51000) → Sol forensic death analysis → targeted fix of the #1 point-loss cause.
+gg3s17 5.02; g619s8 submitted.
+LOAD PROBLEM (11:55 PM): load avg 21-37 from 5 concurrent sims → bot timeouts (e.g. 138/match) → recent sim results unreliable (dodge 4.26/96, traced base 3.81/48). Stopped both optimizers by explicit PID (2959 sh_prac, 65866 sh_tune; partial results kept in their json). Will rerun traces + dodge paired at low load and check timeouts on every sim. Sol analyzing the existing traces now (→ codex_out/DEATHS.md).
