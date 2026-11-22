@@ -513,7 +513,7 @@ func (b *Brain) step(o *Obs, act *Action) {
 	}
 
 	_, gun := hasWeapon(me.Weapons, "gun")
-	_, light := hasWeapon(me.Weapons, "lightning")
+	lightSlot, light := hasWeapon(me.Weapons, "lightning")
 	_, laser := hasWeapon(me.Weapons, "laser")
 	late := z.NextRadius <= 70 || o.Alive <= 3
 
@@ -1006,6 +1006,10 @@ func (b *Brain) step(o *Obs, act *Action) {
 					act.Fire[i] = true
 				}
 			case "lightning":
+				if b.pracOn && isMech {
+					// Run after the loop, when the shared torso command is final.
+					break
+				}
 				cone := w.Stats.ConeDeg * math.Pi / 180
 				if dist < w.Stats.Range-1.5 && math.Abs(angDiff(hy, me.Aim[0])) < cone*0.5-0.05 && me.Energy >= w.Stats.Energy {
 					act.Fire[i] = true
@@ -1062,7 +1066,23 @@ func (b *Brain) step(o *Obs, act *Action) {
 				}
 				tube := Vec3{muzzle[0], muzzle[1], zf + st.Height + 0.5}
 				foot := Vec3{tp[0], tp[1], tp[2] - th*0.5}
+				if b.pracOn {
+					tube[2] = zf + st.Height + 0.5*b.scaleOf(me.Cubes)
+					foot = target.Pos
+				}
 				if my2, mp, ok := b.mortar(tube, foot, tv, w.Stats.Speed, w.Stats.Gravity, st); ok {
+					if b.pracOn {
+						if gun == nil || gun.Reload > 0 || gun.Ammo == 0 || !gunOK {
+							aim = [2]float64{my2, mp}
+						}
+						shotAt, ready := b.practiceFireTime(w.Cooldown)
+						if !ready {
+							break
+						}
+						actual := practiceAimAt(me, aim, shotAt)
+						act.Fire[i] = math.Abs(angDiff(my2, actual[0])) < 0.04 && math.Abs(mp-actual[1]) < 0.03
+						break
+					}
 
 					if gun == nil || gun.Reload > 0 || gun.Ammo == 0 || !gunOK {
 						aim = [2]float64{my2, mp}
@@ -1101,6 +1121,16 @@ func (b *Brain) step(o *Obs, act *Action) {
 			if !haveAim || isMech {
 				aim, haveAim = b.laserLaneAim, true
 			}
+		}
+	}
+
+	if b.pracOn && target != nil && light != nil && lightSlot < len(act.Fire) && haveAim {
+		if command, fire := b.practiceLightning(me, target, light, aim); fire {
+			if i, w := hasWeapon(me.Weapons, "gun"); w != nil && i < len(act.Fire) &&
+				math.Abs(angDiff(command[0], aim[0])) > math.Atan2(tr*0.75, math.Max(1, target.Dist)) {
+				act.Fire[i] = false
+			}
+			aim, act.Fire[lightSlot] = command, true
 		}
 	}
 
@@ -1266,6 +1296,61 @@ func (b *Brain) lead(muzzle, tp, tv Vec3, speed float64, grounded bool) (float64
 		t = math.Max(0, d-3) / speed
 	}
 	return math.Atan2(py-muzzle[1], px-muzzle[0]), math.Atan2(pz-muzzle[2], hyp(px-muzzle[0], py-muzzle[1]))
+}
+
+// practiceFireTime returns the first physics tick that can consume a trigger
+// in this action window. The engine decrements cooldown before firing.
+func (b *Brain) practiceFireTime(cooldown float64) (float64, bool) {
+	tickS := 0.05
+	if b.Cfg.Match.TickHz > 0 {
+		tickS = 1 / b.Cfg.Match.TickHz
+	}
+	ticks := b.Cfg.Match.DecideEvery
+	if ticks <= 0 {
+		ticks = 2
+	}
+	first := math.Max(1, math.Ceil((cooldown-1e-8)/tickS))
+	return first * tickS, first <= float64(ticks)
+}
+
+func practiceAimAt(me *Self, command [2]float64, seconds float64) [2]float64 {
+	st := &me.Stats
+	return [2]float64{
+		me.Aim[0] + clamp(angDiff(command[0], me.Aim[0]), -st.TurnRate*seconds, st.TurnRate*seconds),
+		clamp(me.Aim[1]+clamp(command[1]-me.Aim[1], -st.PitchRate*seconds, st.PitchRate*seconds), st.MinPitch, st.MaxPitch),
+	}
+}
+
+func (b *Brain) practiceLightning(me *Self, target *Track, weapon *WeaponState, aim [2]float64) ([2]float64, bool) {
+	w := &weapon.Stats
+	shotAt, ready := b.practiceFireTime(weapon.Cooldown)
+	if !ready || me.Energy < w.Energy {
+		return aim, false
+	}
+	origin := Vec3{me.Pos[0] + me.Vel[0]*shotAt, me.Pos[1] + me.Vel[1]*shotAt, me.Pos[2] + me.Vel[2]*shotAt + me.Stats.MuzzleHeight}
+	height := b.Cfg.Mech.Height * b.scaleOf(target.Cubes)
+	dest := Vec3{target.Pos[0] + target.Vel[0]*shotAt, target.Pos[1] + target.Vel[1]*shotAt, target.Pos[2] + target.Vel[2]*shotAt + height*0.55}
+	dx, dy := dest[0]-origin[0], dest[1]-origin[1]
+	dist, bearing := hyp(dx, dy), math.Atan2(dy, dx)
+	if dist >= w.Range-0.75 {
+		return aim, false
+	}
+	cone := w.ConeDeg*math.Pi/360 - 0.03
+	for _, command := range [...][2]float64{aim, {bearing, aim[1]}} {
+		actual := practiceAimAt(me, command, shotAt)
+		if math.Abs(angDiff(bearing, actual[0])) >= cone {
+			continue
+		}
+		barrel := Vec3{
+			origin[0] + 3*math.Cos(actual[1])*math.Cos(actual[0]),
+			origin[1] + 3*math.Cos(actual[1])*math.Sin(actual[0]),
+			origin[2] + 3*math.Sin(actual[1]),
+		}
+		if b.W.Clear(origin, barrel) && b.W.Clear(barrel, dest) {
+			return command, true
+		}
+	}
+	return aim, false
 }
 
 func (b *Brain) mortar(tube, foot, tv Vec3, v, g float64, st *MechStats) (yaw, pitch float64, ok bool) {
