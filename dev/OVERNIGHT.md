@@ -330,3 +330,4 @@ New practice variant pl (lightning-first, practice only) pl1-4 (204b304,5faf6e0,
 pl1 (lightning-first) 4.73 → dropped. pd2 submitted. Codex A (practice fixes) + Codex B (FFA sound avoidance) dispatched 8:32 PM.
 Codex A: practice A = UseDrops (= our pd), B = no cube runs under ≥2 attackers → pb1-4 (b56d8fc, ec67fc2, 0920927, ece3f3c). Codex B: ffa-sound (FFA sound-aware avoidance) built; vs-clones test running.
 pd2 5.52 (pd: 5.69, 5.52). Board 9:18 PM: WE ARE 32nd (last qualifying), 33rd Antalos 6.15. pb1 submitted.
+pb1 5.54. pk2 submitted.
