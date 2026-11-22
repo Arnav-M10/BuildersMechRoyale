@@ -372,3 +372,4 @@ builders-4: fx_retreat 5.32. Paired clean screen (vs base, same seeds): sb +0.23
 Screen: sc -0.86, sd -0.35 (dropped); sb2 early -1.56 (18 m). sb2 queued on real. Board 1:23 AM: 36th at 5.68; 32nd kyoto-max 5.70. Built sb salt variants sbs1-6 (scratchpad/sb_salts.txt) for fresh builders-4 draws around sb's mean.
 sb2 real 5.61. sb3 submitted.
 NEW IDEA su (70828b6, check PASS): sb + practice upgrade picks skip laser_/lightning_/mortar_ upgrades when that weapon isn't held (base order takes laser_damage/charge even without a laser — ~half our matches). Sim screen running. Sol: audit sb for other 'hidden waste' → x1-x3.
+sb3 real 5.57. Board 1:45 AM: 39th; 32nd Buildmaxx 5.74. su submitted to real server.
