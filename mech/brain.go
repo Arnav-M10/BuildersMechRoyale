@@ -593,7 +593,16 @@ func (b *Brain) step(o *Obs, act *Action) {
 		if t.Closing > 3 {
 			s -= 15
 		}
-		if s < bestScore {
+		if b.pracOn {
+			pressure := b.squadPressure(t, x, y)
+			// A fresh fight with a healthy roamer is usually a second fight.
+			if !late && pressure <= 0.25 && t.Dist > 52 && t.HP > 0.42*t.MaxHP {
+				t.Engage = false
+				continue
+			}
+			s -= 95 * pressure
+		}
+		if s < bestScore || (b.pracOn && s == bestScore && target != nil && t.ID < target.ID) {
 			bestScore, target = s, t
 		}
 	}
@@ -602,6 +611,10 @@ func (b *Brain) step(o *Obs, act *Action) {
 	}
 	foe := target
 	if foe == nil && b.P.Peek {
+		foe = hidden
+	}
+	if b.pracOn && foe == nil && hidden != nil && hidden.Engage && laser != nil &&
+		laser.Charge > 0 && hidden.Dist < laser.Stats.Range-5 {
 		foe = hidden
 	}
 	if foe == nil && b.P.Pursue > 0 && hidden != nil && hidden.HP < b.P.Pursue*hidden.MaxHP {
@@ -686,6 +699,7 @@ func (b *Brain) step(o *Obs, act *Action) {
 	zoneMust := !me.InZone || now+tNeed+3 >= deadline
 	zoneShould := now+tNeed+14 >= deadline
 
+	squadGround := b.pracOn && me.Grounded && b.W.Free(x, y) && math.Abs(zf-b.W.WalkAt(x, y)) < 2
 	escJump := false
 	switch {
 	case b.escape(me, &mx, &my, &boost, &escJump):
@@ -705,7 +719,11 @@ func (b *Brain) step(o *Obs, act *Action) {
 			boost = me.Energy > 10 && (mx != 0 || my != 0)
 			mode = "cover"
 		} else if target != nil {
-			mx, my = b.fightMove(o, target, seen, 1)
+			if squadGround {
+				mx, my = b.squadLaneMove(o, target, seen, -1)
+			} else {
+				mx, my = b.fightMove(o, target, seen, 1)
+			}
 			mode = "cornered"
 		} else {
 			mx, my = b.travel(me, zgx, zgy)
@@ -739,7 +757,10 @@ func (b *Brain) step(o *Obs, act *Action) {
 		if hot || (light != nil && foe.Dist <= light.Stats.Range+6 && me.Energy >= light.Stats.Energy*3) {
 			ready = true
 		}
-		if !b.P.Peek && (light != nil || laser != nil) {
+		if !b.pracOn && !b.P.Peek && (light != nil || laser != nil) {
+			ready = true
+		}
+		if b.pracOn && crowd <= 1 && laser != nil && laser.Cooldown <= 0.2 && foe.Dist < laser.Stats.Range-5 {
 			ready = true
 		}
 		wantLos := -1.0
@@ -757,16 +778,19 @@ func (b *Brain) step(o *Obs, act *Action) {
 		if b.P.FinishHP > 0 {
 			finHP = b.P.FinishHP
 		}
-		if keep := b.P; b.P.Finish > 0 && foe.HP < finHP*foe.MaxHP && hpFrac > 0.42 && crowd <= 2 {
+		keep := b.P
+		if b.P.Finish > 0 && foe.HP < finHP*foe.MaxHP && hpFrac > 0.42 && crowd <= 2 {
 			b.P.GunRange, b.P.LaserRange, b.P.LightRange = b.P.Finish, b.P.Finish, b.P.Finish
-			mx, my = b.fightMove(o, foe, seen, wantLos)
-			b.P = keep
 			if b.P.FinishRush && foe.Dist > 2*b.P.Finish && me.Energy > 30 {
 				boost = true
 			}
+		}
+		if squadGround {
+			mx, my = b.squadLaneMove(o, foe, seen, wantLos)
 		} else {
 			mx, my = b.fightMove(o, foe, seen, wantLos)
 		}
+		b.P = keep
 		if light != nil && foe.Dist > 50 && me.Energy > 55 && wantLos > 0 {
 			boost = true
 		}
@@ -781,7 +805,13 @@ func (b *Brain) step(o *Obs, act *Action) {
 			}
 			var bc *Vec3
 			for _, c := range b.cubes {
-				if d := hyp(c.Pos[0]-x, c.Pos[1]-y); d < r {
+				dx, dy := c.Pos[0]-x, c.Pos[1]-y
+				d := hyp(dx, dy)
+				if squadGround && crowd >= 2 && (wantLos < 0 || d > 14 || dx*mx+dy*my < 0.86*d || math.Abs(c.Pos[2]-zf) > 3.5 ||
+					!b.W.LineWalkable(x, y, c.Pos[0], c.Pos[1]) || b.zonePenalty(z, c.Pos[0], c.Pos[1]) > 0) {
+					continue
+				}
+				if d < r {
 					r = d
 					cp := c.Pos
 					bc = &cp
@@ -1998,4 +2028,162 @@ func (b *Brain) showsBack(t *Track, x, y float64) bool {
 		arc = 180
 	}
 	return math.Abs(angDiff(t.Aim[0], math.Atan2(y-t.Pos[1], x-t.Pos[0]))) > arc*math.Pi/360+0.1
+}
+
+// squadPressure estimates whether this contact is pursuing us. Relative closing
+// speed alone also rises when we run toward a roaming mech.
+func (b *Brain) squadPressure(t *Track, x, y float64) float64 {
+	if b.now-t.HitMe < 3 {
+		return 1.0
+	}
+	d := math.Max(1, hyp(x-t.Pos[0], y-t.Pos[1]))
+	ux, uy := (x-t.Pos[0])/d, (y-t.Pos[1])/d
+	facing := math.Abs(angDiff(t.Aim[0], math.Atan2(uy, ux)))
+	approach := t.Vel[0]*ux + t.Vel[1]*uy
+	switch {
+	case facing < 0.35 && (t.Charging || approach > 3):
+		return 0.85
+	case facing < 0.55 && d < 150, d < 45 && approach > 2:
+		return 0.65
+	case approach > 4:
+		return 0.45
+	default:
+		return 0.25
+	}
+}
+
+type squadLaneContact struct {
+	t      *Track
+	center Vec3
+	muzzle Vec3
+	radius float64
+	weight float64
+}
+
+// squadLaneMove picks a short walkable firing lane. It charges separately for
+// exposing a second attacker and for putting attackers on different bearings.
+func (b *Brain) squadLaneMove(o *Obs, focus *Track, seen []*Track, wantLOS float64) (float64, float64) {
+	me := &o.Self
+	x, y := me.Pos[0], me.Pos[1]
+	var contacts [5]squadLaneContact
+	n := 0
+	for _, t := range seen {
+		d := hyp(t.Pos[0]-x, t.Pos[1]-y)
+		if t == focus || d > 215 || b.now-t.Seen > 1.0 {
+			continue
+		}
+		weight := b.squadPressure(t, x, y) * clamp(1-d/255, 0.15, 1)
+		if b.now-t.HitMe < 3 {
+			weight += 0.35
+		}
+		c := squadLaneContact{
+			t: t, center: b.center(t), muzzle: t.Pos,
+			radius: b.Cfg.Mech.Radius * b.scaleOf(t.Cubes), weight: weight,
+		}
+		c.muzzle[2] += b.Cfg.Mech.MuzzleHeight * b.scaleOf(t.Cubes)
+		i := min(n, len(contacts)-1)
+		if n == len(contacts) && (weight < contacts[i].weight || weight == contacts[i].weight && t.ID > contacts[i].t.ID) {
+			continue
+		}
+		for i > 0 && (weight > contacts[i-1].weight || weight == contacts[i-1].weight && t.ID < contacts[i-1].t.ID) {
+			contacts[i] = contacts[i-1]
+			i--
+		}
+		contacts[i] = c
+		n = min(n+1, len(contacts))
+	}
+
+	fx, fy := focus.Pos[0]-x, focus.Pos[1]-y
+	fdist := math.Max(1, hyp(fx, fy))
+	if b.now >= b.strafeUntil {
+		if b.rng.Float64() < 0.6 {
+			b.strafe = -b.strafe
+		}
+		b.strafeUntil = b.now + 0.5 + b.rng.Float64()*0.55
+	}
+	tc := b.center(focus)
+	tRadius := b.Cfg.Mech.Radius * b.scaleOf(focus.Cubes)
+	tHeight := b.Cfg.Mech.Height * b.scaleOf(focus.Cubes)
+	preferred := b.prefRange(me, focus)
+	best := math.Inf(-1)
+	var mx, my float64
+	samples := 16
+	if n > 0 || wantLOS < 0 {
+		samples = 32
+	}
+	for k := -1; k < samples; k++ {
+		var dx, dy, r float64
+		cx, cy, cz := x, y, me.Pos[2]
+		if k >= 0 {
+			a := float64(k%16) * math.Pi / 8
+			dx, dy = math.Cos(a), math.Sin(a)
+			r = 5.0 + 5.0*float64(k/16)
+			cx, cy = x+dx*r, y+dy*r
+			if !b.W.InBounds(cx, cy) || !b.W.Free(cx, cy) || !b.W.LineWalkable(x, y, cx, cy) {
+				continue
+			}
+			cz = b.W.WalkAt(cx, cy)
+			if math.Abs(cz-me.Pos[2]) > 3 {
+				continue
+			}
+		}
+
+		d := math.Max(1, hyp(focus.Pos[0]-cx, focus.Pos[1]-cy))
+		muzzle := Vec3{cx, cy, cz + me.Stats.MuzzleHeight}
+		body := Vec3{cx, cy, cz + me.Stats.Height*0.58}
+		s := -1.1*math.Abs(d-preferred) - r*0.3
+		if wantLOS < 0 {
+			s = 0.75*clamp(d-fdist, -12, 12) - r*0.18
+		}
+		if b.W.Clear(muzzle, tc) {
+			s += 31 * wantLOS
+		}
+		s += 2 * (dx*me.Vel[0] + dy*me.Vel[1]) / math.Max(1, me.Stats.WalkSpeed)
+		if wantLOS > 0 {
+			s += 8 * b.strafe * (-dx*fy+dy*fx) / fdist
+			if k < 0 {
+				s -= 6
+			}
+		}
+		bearing := math.Atan2(focus.Pos[1]-cy, focus.Pos[0]-cx)
+		for i := 0; i < n; i++ {
+			c := &contacts[i]
+			ex, ey := c.center[0]-cx, c.center[1]-cy
+			ed := math.Max(1, hyp(ex, ey))
+			if !b.W.Clear(c.muzzle, body) {
+				continue
+			}
+			off := math.Abs(angDiff(math.Atan2(ey, ex), bearing))
+			exposure := c.weight * (29 + 18*clamp(off/(math.Pi/2), 0, 1))
+			// A front mech can intercept gun fire from a rear mech. Keep a
+			// residual penalty for projectiles missing it or weapons with splash.
+			vx, vy := body[0]-c.muzzle[0], body[1]-c.muzzle[1]
+			f := ((tc[0]-c.muzzle[0])*vx + (tc[1]-c.muzzle[1])*vy) / (ed * ed)
+			if f > 0 && f < 1 {
+				gap := hyp(tc[0]-c.muzzle[0]-f*vx, tc[1]-c.muzzle[1]-f*vy)
+				crossZ := c.muzzle[2] + f*(body[2]-c.muzzle[2])
+				if gap < tRadius*0.78 && crossZ > focus.Pos[2]+0.4 && crossZ < focus.Pos[2]+tHeight-0.4 &&
+					!holds(c.t.Weapons, "laser") && !holds(c.t.Weapons, "mortar") && !holds(c.t.Weapons, "lightning") {
+					exposure *= 0.5
+				}
+			}
+			s -= exposure
+			// When our focus is the rear mech, the same geometry can steal
+			// our shot. Penalize selecting this lane rather than adding aggro.
+			if wantLOS > 0 && ed+6 < d && math.Sin(off)*ed < c.radius && off < 0.25 {
+				shotZ := muzzle[2] + ed/d*(tc[2]-muzzle[2])
+				if shotZ > c.t.Pos[2] && shotZ < 2*c.center[2]-c.t.Pos[2] {
+					s -= 17
+				}
+			}
+		}
+		s -= b.zonePenalty(&o.Zone, cx, cy)
+		if cl := float64(b.W.Clearance[b.W.Cell(cx, cy)]); cl < me.Stats.Radius+1.5 {
+			s -= 3 * (me.Stats.Radius + 1.5 - cl)
+		}
+		if s > best {
+			best, mx, my = s, dx, dy
+		}
+	}
+	return mx, my
 }
