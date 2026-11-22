@@ -326,7 +326,8 @@ func (b *Brain) observe(o *Obs) {
 		b.base, b.baseSet = b.P, true
 		b.startAlive = o.Alive
 	}
-	if b.startAlive-o.Alive-b.kills > 0 {
+	// A single uncredited death can come from an NPC or zone in squad practice.
+	if b.startAlive-o.Alive-b.kills >= 2 {
 		b.otherDead++
 	} else {
 		b.otherDead = 0
