@@ -26,6 +26,14 @@ type known struct {
 	Seen float64
 }
 
+type soundThreat struct {
+	Kind    string
+	Bearing float64
+	Dist    string
+	Seen    float64
+	X, Y    float64
+}
+
 type circle struct{ X, Y, R float64 }
 
 type Brain struct {
@@ -41,6 +49,7 @@ type Brain struct {
 	cubes   map[int]*known
 	pickups map[int]*known
 	bad     map[int]float64
+	soundThreats []soundThreat
 
 	now float64
 
@@ -347,6 +356,30 @@ func (b *Brain) observe(o *Obs) {
 		} else if b.pracOn {
 			b.P = squadParams(b.base)
 		}
+	}
+	if b.pracOn {
+		b.soundThreats = nil
+	} else {
+		for i := range o.Sounds {
+			s := &o.Sounds[i]
+			if (s.Kind != "gun" && s.Kind != "laser" && s.Kind != "boost") || s.Age < 0 || s.Age > 3 {
+				continue
+			}
+			b.soundThreats = append(b.soundThreats, soundThreat{
+				Kind: s.Kind, Bearing: s.Bearing, Dist: s.Dist, Seen: now - s.Age,
+				X: me.Pos[0] - me.Vel[0]*s.Age, Y: me.Pos[1] - me.Vel[1]*s.Age,
+			})
+		}
+		kept := b.soundThreats[:0]
+		for _, s := range b.soundThreats {
+			if now-s.Seen >= 0 && now-s.Seen < 3 {
+				kept = append(kept, s)
+			}
+		}
+		if len(kept) > 32 {
+			kept = kept[len(kept)-32:]
+		}
+		b.soundThreats = kept
 	}
 
 	z := &o.Zone
@@ -1619,12 +1652,16 @@ func (b *Brain) chooseLoot(o *Obs, hpFrac float64, danger bool) *lootChoice {
 		if nf := b.W.NearestFree(b.W.Cell(pos[0], pos[1])); nf < 0 || b.W.Comp[nf] != b.W.MainComp {
 			return
 		}
-		u := value / (d + 18)
+		avoid := 0.0
+		if !b.pracOn && !danger {
+			avoid = b.avoidancePenalty(pos[0], pos[1])
+		}
+		u := value / (d + 18 + avoid)
 		if id == b.lootID {
 			u *= 1.35
 		}
 		if econ {
-			u = value - 0.6*d
+			u = value - 0.6*(d+avoid)
 			if id == b.lootID {
 				u += 30
 			}
@@ -1799,6 +1836,99 @@ func (b *Brain) exploreMove(o *Obs) (float64, float64) {
 	return b.travel(me, b.explore[0], b.explore[1])
 }
 
+func smoothUnit(v float64) float64 {
+	v = clamp(v, 0, 1)
+	return v * v * (3 - 2*v)
+}
+
+func soundThreatBand(kind, dist string) (float64, float64, bool) {
+	maxRange := 200.0
+	if kind == "boost" {
+		maxRange = 90
+	}
+	var lo, hi float64
+	switch dist {
+	case "near":
+		lo, hi = 0, 70
+	case "mid":
+		lo, hi = 45, 170
+	case "far":
+		lo, hi = 125, 200
+	default:
+		return 0, 0, false
+	}
+	if hi > maxRange {
+		hi = maxRange
+	}
+	if lo > hi {
+		return 0, 0, false
+	}
+	return lo, hi, true
+}
+
+func (b *Brain) avoidancePenalty(px, py float64) float64 {
+	if b.pracOn || b.now-b.lastHurt < 2.5 {
+		return 0
+	}
+	for _, t := range b.tracks {
+		age := b.now - t.Seen
+		if t.Engage && age >= 0 && age < 2.5 {
+			return 0
+		}
+	}
+
+	penalty := 0.0
+	for _, t := range b.tracks {
+		age := b.now - t.Seen
+		if t.Engage || age < 0 || age >= 2.5 {
+			continue
+		}
+		d := hyp(t.Pos[0]-px, t.Pos[1]-py)
+		fade := 1 - age/2.5
+		fade *= fade
+		near := 1 - smoothUnit(d/180)
+		penalty += 80 * fade * near
+	}
+
+	for _, s := range b.soundThreats {
+		age := b.now - s.Seen
+		if age < 0 || age >= 3 {
+			continue
+		}
+		lo, hi, ok := soundThreatBand(s.Kind, s.Dist)
+		if !ok {
+			continue
+		}
+		dx, dy := px-s.X, py-s.Y
+		along := dx*math.Cos(s.Bearing) + dy*math.Sin(s.Bearing)
+		if along < -20 || along > hi+20 {
+			continue
+		}
+		radial := 1.0
+		if along < lo {
+			radial = 1 - smoothUnit((lo-along)/20)
+		} else if along > hi {
+			radial = 1 - smoothUnit((along-hi)/20)
+		}
+		r := hyp(dx, dy)
+		angular := 1.0
+		if r > 4 {
+			delta := math.Abs(angDiff(math.Atan2(dy, dx), s.Bearing))
+			angular = 1 - smoothUnit(delta/0.42)
+		}
+		fade := 1 - age/3
+		fade *= fade
+		kindWeight := 1.0
+		if s.Kind == "laser" {
+			kindWeight = 1.2
+		} else if s.Kind == "boost" {
+			kindWeight = 0.75
+		}
+		penalty += 75 * fade * kindWeight * radial * angular
+	}
+	return math.Min(150, penalty)
+}
+
 func (b *Brain) homeCost(o *Obs, px, py float64) float64 {
 	z := &o.Zone
 	crowd := 0.0
@@ -1811,7 +1941,7 @@ func (b *Brain) homeCost(o *Obs, px, py float64) float64 {
 		crowd += math.Max(0, 60-hyp(o.Drops[i].Pos[0]-px, o.Drops[i].Pos[1]-py)) / 60
 	}
 	edge := hyp(px-z.NextCenter[0], py-z.NextCenter[1]) / math.Max(30, z.NextRadius)
-	return b.P.HomeExpo*b.W.Exposure(px, py) + 0.25*hyp(px-o.Self.Pos[0], py-o.Self.Pos[1]) + 40*crowd + 10*edge
+	return b.P.HomeExpo*b.W.Exposure(px, py) + 0.25*hyp(px-o.Self.Pos[0], py-o.Self.Pos[1]) + 40*crowd + 10*edge + b.avoidancePenalty(px, py)
 }
 
 func (b *Brain) home(o *Obs) (float64, float64, bool) {
