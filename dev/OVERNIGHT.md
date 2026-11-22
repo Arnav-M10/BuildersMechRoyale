@@ -336,3 +336,4 @@ pb1 5.54. pk2 submitted.
 PRACTICE OPTIMIZER (9:30 PM): successive halving over 15 squad params + 5 bools (24 configs; 48/96/192/384 matches; common seeds) in the practice sim with the Go bot (sim≈real after physics fix: giddy4 5.74/5.67, giddy3 5.30/~5.6, giddy2 5.23/5.25). Image mf-go-tune2 reads $MECH_SQ. Driver scratchpad/sh_prac.py → sh_prac.json/log. Winners → several real draws each.
 pd3 5.73 (pd: 5.69/5.52/5.73 → 5.65). pd4 submitted.
 Codex new strategies: s1 = drops (= pd); s2 = HP banking under ≥2 hunters (retreat until 90-95%, hold fire while retreating) → ph1-4 (cd76fa1, 8935afd, db48936, 4c0ba3b). Practice-sim A/B ph vs go-619 (96 m each, seed 12000) running.
+pd4 5.52 → pd (drops) 4 draws mean 5.62 vs base 5.56: no real gain. ph1 submitted. Practice optimizer round 0 (48 m): cfg0 4.88, cfg1 5.04, cfg2 3.81, cfg3 4.50 …
