@@ -338,3 +338,6 @@ pd3 5.73 (pd: 5.69/5.52/5.73 → 5.65). pd4 submitted.
 Codex new strategies: s1 = drops (= pd); s2 = HP banking under ≥2 hunters (retreat until 90-95%, hold fire while retreating) → ph1-4 (cd76fa1, 8935afd, db48936, 4c0ba3b). Practice-sim A/B ph vs go-619 (96 m each, seed 12000) running.
 pd4 5.52 → pd (drops) 4 draws mean 5.62 vs base 5.56: no real gain. ph1 submitted. Practice optimizer round 0 (48 m): cfg0 4.88, cfg1 5.04, cfg2 3.81, cfg3 4.50 …
 ph1 (HP banking) REAL 4.25; sim ph 3.82 (96 m) vs base ~4.9-5.3 → dropped. Sim correctly predicted a big loss → practice optimizer useful for big effects. pb2 submitted.
+pb2 5.69 (pb: 5.54, 5.69). pb3 submitted.
+FFA: ffa-sound (sound-aware avoidance) 8.06 over 64 m vs base 7.61/7.78 → BEST FFA variant; confirming on independent seed set 9500 (ffa-sound vs go-619).
+FFA optimizer round-0 leaders (16 m): cfg7 7.88, cfg18 7.19, cfg6 6.88 vs baseline 5.06 — common: Lethal on, GunRange ~100-110, Finish ~18-30, LaserSeek 100-150.
