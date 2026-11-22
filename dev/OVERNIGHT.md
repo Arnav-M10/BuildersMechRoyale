@@ -322,3 +322,4 @@ Practice-only variants on go-619 with 4 salts each (check PASS): pd = UseDrops i
 gg3s16 5.31. pk1 submitted (A/B start).
 
 ## OPTIMIZATION (8:10 PM): successive halving over 12 Go FFA params + 2 bools (20 configs incl. baseline; 16/32/64/128 matches; common seeds) vs 15 giddy clones in the fixed FFA sim. Image mf-go-tune (branch exp/go-tune) reads $MECH_FP (sim only). Driver scratchpad/sh_tune.py → sh_tune.json/log.
+pk1 5.48; pd1 submitted. FFA: ffa-ls 7.10 (61 m), ffa-nano 7.03 (60 m) → no gain vs base 7.6-7.8.
