@@ -345,3 +345,4 @@ pb3 5.71 (pb 5.54/5.69/5.71 → 5.65). Board 10:30 PM: we're 36th; 32nd Buildmax
 pb4 5.02 → pb 4 draws mean 5.49: no gain. All practice variants ≈ or < base (pd 5.62, pk 5.54(2), pb 5.49, ph 4.25, pl 4.73). Back to base salts (g619s5 submitted).
 Top-32 unique repos: Team-Xero (MIT, Rust) public HEAD is Friday's ~3.9 version — current 6.13 code not public; Kanyaraasi repo now private/deleted; the other top teams have no public code.
 g619s5 5.60; g619s6 submitted. ffa-sound set2 (seed 9500) 7.44 (57 m) → avg with set1 ≈7.75 ≈ base; base set2 pending. Practice optimizer round0: cfg8 5.52 vs cfg0 4.88 (48 m).
+g619s6 5.31; g619s7 submitted. Codex now gpt-6.2-sol medium (per-call flag); Sol strategist + builder sessions running.
