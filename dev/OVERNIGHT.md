@@ -302,3 +302,4 @@ Attempt to build an exact replica of the 6.19 submission was BLOCKED by the safe
 FFA final: lurk 7.47 (62 m), endgame 6.82 (61 m) vs base 7.61. Squad-sim Go giddy3 4.72 (36 m) so far.
 gg3s14 5.27.
 USER APPROVED (6:25 PM) building the 6.19 settings: branch exp/go-619 `0e45c8d` = giddy mech (HPw .18 + MaxTarget 200) + giddy's original MIT main.go, Go 1.26.1 (native arch; forcing GOARCH=amd64 failed check.py on this ARM Mac due to emulation). check.py PASS. Submitted 6:31 PM.
+go-619 scored 6.08 (not 6.19 → not an exact replica / scorer not fully deterministic). Still > giddy3 salt mean 5.65 → testing its salts g619s1..12 (scratchpad/g619_salts.txt).
