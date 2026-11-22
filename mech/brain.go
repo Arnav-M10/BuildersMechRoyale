@@ -826,6 +826,10 @@ func (b *Brain) step(o *Obs, act *Action) {
 				}
 			default:
 				mx, my = b.travel(me, lc.pos[0], lc.pos[1])
+				if lc.kind == "pickup" && lc.value >= 195 && now < 55 && !danger && me.Energy > 76 &&
+					hyp(lc.pos[0]-x, lc.pos[1]-y) > 24 {
+					boost = true
+				}
 				if lc.kind == "drop" && hyp(lc.pos[0]-x, lc.pos[1]-y) < 2.5 {
 					mx, my = 0, 0
 				}
@@ -1758,6 +1762,24 @@ func (b *Brain) chooseLoot(o *Obs, hpFrac float64, danger bool) *lootChoice {
 			return nil
 		}
 		return best
+	}
+	if now < 55 && !danger && now-b.lastHurt > 3 && hpFrac > 0.70 && me.InZone {
+		if _, laser := hasWeapon(me.Weapons, "laser"); laser == nil {
+			for _, p := range b.pickups {
+				if p.Kind != "laser" || !b.wantPickup(me, p.Kind) {
+					continue
+				}
+				d := hyp(p.Pos[0]-x, p.Pos[1]-y)
+				if d > 115 || hyp(p.Pos[0]-z.NextCenter[0], p.Pos[1]-z.NextCenter[1]) > z.NextRadius-8 {
+					continue
+				}
+				v := 280.0
+				if !b.W.LineWalkable(x, y, p.Pos[0], p.Pos[1]) {
+					v = 195
+				}
+				consider("pickup", p.ID, p.Pos, v)
+			}
+		}
 	}
 	for _, p := range b.pickups {
 		rad := b.P.LootRadius
